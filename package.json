@@ -15,7 +15,7 @@
   "dependencies": {
     "@babylonjs/core": "9.26.0",
     "@babylonjs/loaders": "9.26.0",
-    "playcanvas": "2.22.2",
+    "playcanvas": "2.23.0",
     "three": "0.186.0"
   },
   "devDependencies": {
