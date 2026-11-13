@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, defaultClientConditions } from 'vite';
 import { resolve } from 'node:path';
 import { benchApi } from './server/api.ts';
 
@@ -12,6 +12,8 @@ const headers = {
 
 export default defineConfig({
   plugins: [benchApi(root)],
+  // Babylon Lite is left-handed unless built with this condition; the shared scenes are right-handed.
+  resolve: { conditions: [...defaultClientConditions, 'babylon-lite-rh'] },
   build: {
     target: 'es2022',
     outDir: 'dist',

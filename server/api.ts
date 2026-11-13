@@ -20,6 +20,8 @@ export interface QueuedRun {
   repeat: number;
   mode: string;
   tag?: string;
+  /** Capacity ladder: stop climbing once a level is over the frame budget. */
+  capacity?: boolean;
   /** Set on the single retry queued after a stall or watchdog timeout. */
   retryOf?: string;
 }
@@ -28,6 +30,13 @@ export interface QueuedRun {
 const isTransient = (r: any) => r.status === 'stalled' || r.status === 'timeout';
 
 const EARLY_STOP_MS = 100;
+/** One level past the 16.7 ms budget is kept, so the report can interpolate the capacity. */
+const CAPACITY_STOP_MS = 18;
+
+/** p95 frame cost: the larger of CPU and GPU time, which is independent of vsync. */
+const frameCost = (result: any) => Math.max(result.frames?.cpu?.p95 ?? 0, result.frames?.gpu?.p95 ?? 0);
+const isSlow = (r: QueuedRun | undefined, result: any) =>
+  Math.max(result.frames?.interval?.p50 ?? 0, result.frames?.cpu?.p50 ?? 0) > EARLY_STOP_MS || (!!r?.capacity && frameCost(result) > CAPACITY_STOP_MS);
 
 export class BenchSession {
   next = 0;
@@ -120,7 +129,7 @@ export class BenchSession {
     if (!r || r.tag) return;
     if (isTransient(result) && !r.retryOf) return; // its retry decides
     const broken = result.status === 'error' || isTransient(result);
-    const slow = Math.max(result.frames?.interval?.p50 ?? 0, result.frames?.cpu?.p50 ?? 0) > EARLY_STOP_MS;
+    const slow = isSlow(r, result);
     if (broken) this.lower(this.stopFrom, r.ladder, r.level);
     else if (slow || result.status !== 'ok') this.lower(this.stopAbove, r.ladder, r.level);
   }
@@ -158,7 +167,7 @@ export class BenchSession {
     this.append(result);
     const r = this.queue.find((q) => q.runId === result.runId);
     const bad = result.status !== 'ok';
-    const slow = Math.max(result.frames?.interval?.p50 ?? 0, result.frames?.cpu?.p50 ?? 0) > EARLY_STOP_MS;
+    const slow = isSlow(r, result);
     if (bad) this.failed++;
     else this.completed++;
     this.applyStops(result);

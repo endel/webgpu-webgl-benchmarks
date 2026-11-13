@@ -1,5 +1,5 @@
 <title>WebGPU Engine Bench</title>
-<meta name="description" content="three.js, PlayCanvas and Babylon.js measured on WebGPU and WebGL2 across Chrome, Safari and Firefox.">
+<meta name="description" content="Nine key tests for choosing a web 3D engine: three.js, PlayCanvas, Babylon.js, Babylon Lite and PixiJS 3D on WebGPU and WebGL2.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,500..800&family=Onest:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
@@ -18,6 +18,8 @@
     --e-three: #2a78d6;
     --e-playcanvas: #eb6834;
     --e-babylon: #1baf7a;
+    --e-babylon-lite: #eda100;
+    --e-pixi3d: #e87ba4;
     --e-three-classic: #8d938e;
     --critical: #d03b3b;
     --good-ink: #006300;
@@ -42,6 +44,8 @@
       --e-three: #3987e5;
       --e-playcanvas: #d95926;
       --e-babylon: #199e70;
+      --e-babylon-lite: #c98500;
+      --e-pixi3d: #d55181;
       --e-three-classic: #7b817d;
       --good-ink: #0ca30c;
       --sel: #eef1ee;
@@ -62,6 +66,8 @@
     --e-three: #3987e5;
     --e-playcanvas: #d95926;
     --e-babylon: #199e70;
+      --e-babylon-lite: #c98500;
+      --e-pixi3d: #d55181;
     --e-three-classic: #7b817d;
     --good-ink: #0ca30c;
     --sel: #eef1ee;
@@ -82,7 +88,18 @@
   .rig { display: flex; flex-wrap: wrap; gap: 6px 18px; font: 12.5px/1.5 var(--mono); color: var(--ink-2); }
   .rig b { color: var(--ink); font-weight: 500; }
 
-  .filters { position: sticky; top: 0; z-index: 5; display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; padding-block: 12px; margin-block: 0 8px; background: color-mix(in oklab, var(--page) 90%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--hair); }
+  .bar { position: sticky; top: 0; z-index: 5; margin-block: 0 8px; background: color-mix(in oklab, var(--page) 90%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--hair); }
+  .nav { display: flex; gap: 2px; align-items: center; overflow-x: auto; scrollbar-width: none; padding-block: 8px 0; }
+  .nav::-webkit-scrollbar { display: none; }
+  .nav a { flex: none; padding: 6px 9px; border-radius: 6px; font-size: 13px; font-weight: 500; color: var(--ink-2); text-decoration: none; white-space: nowrap; }
+  .nav a:hover { background: var(--wash); color: var(--ink); }
+  .nav a.on { background: var(--wash); color: var(--ink); box-shadow: inset 0 -2px 0 var(--ink); }
+  .nav .gap { flex: none; width: 1px; height: 16px; background: var(--axis); margin-inline: 6px; }
+  .filters { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; padding-block: 8px 10px; }
+  .filters .seg label span { padding: 5px 9px; }
+  .filters .seg { gap: 6px; }
+  @media (max-width: 760px) { .filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; } }
+  section { scroll-margin-top: calc(var(--bar-h, 96px) - 28px); }
   .seg { display: inline-flex; align-items: center; gap: 8px; }
   .seg > span { font: 500 11px/1 var(--mono); letter-spacing: 0.07em; text-transform: uppercase; color: var(--muted); }
   .seg .opts { display: inline-flex; background: var(--wash); border-radius: 8px; padding: 3px; gap: 2px; }
@@ -145,14 +162,57 @@
   .pathnote b { color: var(--ink-2); font-weight: 500; }
 
   .board td { padding-block: 9px; }
-  .board td.best { font-weight: 600; }
+  .board td { padding-left: 10px; }
+  .board td:first-child { white-space: normal; min-width: 230px; }
+  .board .meter { width: 48px; margin-left: 8px; }
+  .board td.best { font-weight: 650; background: color-mix(in oklab, var(--c, var(--wash)) 15%, transparent); }
+  .board td a { text-decoration: none; }
+  .board td a:hover { text-decoration: underline; }
+  .board tr.wins td { border-bottom-color: var(--axis); font-weight: 600; }
+  .star { margin-right: 3px; }
+  .dirtxt { color: var(--ink-2); font-weight: 500; }
+
+  .tally { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin: 0 0 16px; font-size: 13px; color: var(--ink-2); }
+  .tally .chip { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; background: var(--surface); border: 1px solid var(--hair); color: var(--ink); font-weight: 500; }
+  .tally .chip small { color: var(--muted); font-weight: 400; margin-left: 6px; }
+  .vgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 14px; }
+  .verdict { background: var(--surface); border: 1px solid var(--hair); border-radius: 10px; padding: 16px 18px; display: grid; gap: 12px; align-content: start; }
+  .v-head { display: flex; justify-content: space-between; gap: 10px; align-items: start; }
+  .v-head b { font: 650 15px/1.25 var(--display); display: block; }
+  .v-head small { display: block; color: var(--muted); font-size: 12px; line-height: 1.4; margin-top: 2px; }
+  .dir { flex: none; font: 500 10.5px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; padding: 4px 7px; border-radius: 4px; background: var(--wash); color: var(--ink-2); }
+  .v-rows { display: grid; gap: 6px; }
+  .v-row { display: grid; grid-template-columns: 108px minmax(0, 1fr) auto; gap: 8px; align-items: center; font-size: 13px; color: var(--ink-2); }
+  .v-row .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .v-row .track i { display: block; height: 8px; border-radius: 0 4px 4px 0; min-width: 2px; opacity: 0.45; }
+  .v-row .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .v-row .num small { color: var(--muted); margin-left: 6px; font-size: 11.5px; }
+  .v-row.win { color: var(--ink); font-weight: 600; font-size: 14.5px; }
+  .v-row.win .track i { opacity: 1; height: 10px; }
+  .v-row.win .num small { font: 500 10.5px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; padding: 3px 6px; border-radius: 4px; background: var(--sel); color: var(--sel-ink); }
+  .v-row .why { grid-column: 2 / -1; }
+
+  .ghead { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 360px); gap: 8px 28px; align-items: start; margin-bottom: 8px; }
+  .ghead.solo { grid-template-columns: minmax(0, 1fr); }
+  .ghead .shots { display: grid; gap: 10px; }
+  .ghead figure { margin: 0; }
+  .ghead img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; border: 1px solid var(--hair); display: block; background: var(--wash); }
+  .ghead figcaption { font-size: 12px; color: var(--muted); margin-top: 5px; }
+  @media (max-width: 760px) { .ghead { grid-template-columns: minmax(0, 1fr); } }
+  details.det { padding: 0; margin-top: 14px; }
+  details.det > summary { cursor: pointer; list-style: none; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; padding: 13px clamp(16px, 2.2vw, 24px); font-weight: 500; }
+  details.det > summary::-webkit-details-marker { display: none; }
+  details.det > summary::before { content: "+"; font: 500 15px/1 var(--mono); width: 12px; color: var(--muted); }
+  details.det[open] > summary::before { content: "−"; }
+  details.det > summary small { color: var(--muted); font-weight: 400; font-size: 12.5px; }
+  details.det > .scen { padding: 6px clamp(16px, 2.2vw, 24px) clamp(16px, 2.2vw, 24px); }
   .meter { display: inline-block; width: 64px; height: 6px; border-radius: 0 3px 3px 0; background: var(--wash); vertical-align: middle; margin-left: 10px; overflow: hidden; }
   .meter > i { display: block; height: 100%; border-radius: 0 3px 3px 0; }
   .pill { display: inline-block; font: 500 10.5px/1 var(--mono); letter-spacing: 0.04em; text-transform: uppercase; padding: 3px 6px; border-radius: 4px; background: var(--wash); color: var(--ink-2); margin-left: 8px; vertical-align: 1px; }
   .scen-title-cell { display: grid; gap: 1px; }
   .scen-title-cell small { color: var(--muted); font-size: 11.5px; }
 
-  .bgrid { display: grid; grid-template-columns: minmax(150px, 1.1fr) repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--axis); }
+  .bgrid { display: grid; grid-template-columns: minmax(150px, 1.1fr) repeat(var(--n, 5), minmax(0, 1fr)); border-top: 1px solid var(--axis); }
   .bgrid > div { padding: 10px 12px 10px 0; border-bottom: 1px solid var(--hair); }
   .bgrid .hd { font: 500 11px/1.2 var(--mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); padding-block: 8px; }
   .mini { display: grid; grid-template-columns: 54px minmax(0, 1fr) 58px; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); }
@@ -163,12 +223,12 @@
   .two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
   @media (max-width: 880px) { .two { grid-template-columns: minmax(0, 1fr); } }
 
-  .gallery { display: grid; grid-template-columns: minmax(96px, 150px) repeat(3, minmax(0, 1fr)); gap: 10px 12px; align-items: center; }
+  .gallery { display: grid; grid-template-columns: minmax(80px, 120px) repeat(var(--n, 5), minmax(0, 1fr)); gap: 10px 12px; align-items: center; }
   .gallery .hd { font: 500 11px/1.2 var(--mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); }
   .gallery img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 6px; border: 1px solid var(--hair); display: block; background: var(--wash); }
   .gallery .miss { aspect-ratio: 16 / 9; border-radius: 6px; border: 1px dashed var(--axis); display: grid; place-items: center; color: var(--muted); font-size: 12px; text-align: center; padding: 6px; }
   .gallery .lab { font-size: 13px; color: var(--ink-2); }
-  @media (max-width: 640px) { .gallery { grid-template-columns: repeat(3, minmax(0, 1fr)); } .gallery .lab { grid-column: 1 / -1; margin-top: 8px; } .gallery .hd.first { display: none; } }
+  @media (max-width: 640px) { .gallery { grid-template-columns: repeat(var(--n, 5), minmax(0, 1fr)); } .gallery .lab { grid-column: 1 / -1; margin-top: 8px; } .gallery .hd.first { display: none; } }
 
   .findings { display: grid; gap: 14px; counter-reset: f; }
   .finding { display: grid; grid-template-columns: 5px minmax(0, 1fr); gap: 16px; }
@@ -192,71 +252,116 @@
   #tip .r span { color: var(--ink-2); }
   footer { margin-top: 64px; padding-top: 18px; border-top: 1px solid var(--hair); color: var(--muted); font-size: 12.5px; }
   @media (prefers-reduced-motion: no-preference) { .seg label span { transition: background 120ms, color 120ms; } }
+  .conf td { white-space: nowrap; }
+  .conf td a { text-decoration: none; }
+  .conf td a:hover { text-decoration: underline; }
+  .conf .marks { display: grid; grid-template-columns: auto auto auto; gap: 1px 8px; justify-content: end; font: 500 12px/1.5 var(--mono); }
+  .conf .marks span.b { color: var(--muted); font-weight: 400; }
+  .conf .ok { color: var(--good-ink); }
+  .conf .na { color: var(--muted); }
+  .conf .bad { color: var(--critical); }
+  .reasons { margin: 14px 0 0; padding-left: 18px; font-size: 13px; color: var(--ink-2); }
+  .reasons li { margin: 4px 0; }
+  .prof td small, .board td small { display: block; color: var(--muted); font-size: 11.5px; }
+  .prof td:first-child { white-space: normal; min-width: 260px; max-width: 520px; }
+  .prof td:first-child small + small { margin-top: 4px; line-height: 1.45; }
+  .prof td small.why { color: var(--ink-2); font-size: 12.5px; margin-top: 6px; }
+  .prof td small.why b { color: var(--ink); font-weight: 600; }
+  .note { border-left: 3px solid var(--axis); background: var(--surface); border-radius: 0 8px 8px 0; padding: 12px 18px; margin: 0 0 18px; font-size: 13.5px; color: var(--ink-2); max-width: 92ch; }
+  .note summary { cursor: pointer; list-style: none; display: flex; gap: 8px; align-items: center; color: var(--ink); font-weight: 600; }
+  .note summary::-webkit-details-marker { display: none; }
+  .note summary::after { content: "+"; font: 500 15px/1 var(--mono); color: var(--muted); margin-left: auto; }
+  .note[open] summary::after { content: "−"; }
+  .note .i { font-size: 15px; line-height: 1; }
+  .note ul { margin: 8px 0 0; padding-left: 18px; }
+  .note li { margin: 4px 0; }
+  .keytag { font: 500 10.5px/1 var(--mono); letter-spacing: 0.04em; color: var(--muted); margin-right: 8px; }
+  .mast-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .ver { display: inline-flex; background: var(--wash); border-radius: 8px; padding: 3px; gap: 2px; }
+  .ver a { padding: 4px 10px; border-radius: 6px; font: 500 12px/1 var(--mono); color: var(--ink-2); text-decoration: none; }
+  .ver a:hover { color: var(--ink); }
+  .ver a[aria-current] { background: var(--sel); color: var(--sel-ink); }
 </style>
 
 <div class="wrap">
   <header class="mast">
-    <div class="kicker" id="kicker">Benchmark report</div>
-    <h1>WebGPU Engine Bench<span class="engines">three.js · PlayCanvas · Babylon.js</span></h1>
-    <p class="lede">The same deterministic scenes built in three engines, measured frame by frame on WebGPU and WebGL2 in Chrome, Safari and Firefox. Every scene renders identical geometry, lights and camera at 1920×1080 with 4× MSAA and ACES tone mapping; the harness owns the frame loop and times each engine through the same WebGPU instrumentation.</p>
+    <div class="mast-top"><div class="kicker" id="kicker">Benchmark report</div><nav class="ver" aria-label="Report version"><a href="https://endel.github.io/webgpu-webgl-benchmarks/v1/" title="First report: three engines, 13 scenarios">v1</a><a href="https://endel.github.io/webgpu-webgl-benchmarks/" title="Current report: five engines, nine key tests" aria-current="page">v2</a></nav></div>
+    <h1>WebGPU Engine Bench<span class="engines" id="engines-line"></span></h1>
+    <p class="lede">Nine key tests for choosing a 3D engine for the web, built identically in each engine and measured frame by frame on WebGPU and WebGL2. Every scene renders the same geometry, lights and camera at 1920×1080 with 4× MSAA and ACES tone mapping; the harness owns the frame loop and times each engine through the same instrumentation.</p>
     <div class="rig" id="rig"></div>
   </header>
 
-  <div class="filters" id="filters" role="group" aria-label="Filters for every chart below"></div>
+  <div class="bar" id="bar">
+    <nav class="nav" id="nav" aria-label="Sections"></nav>
+    <div class="filters" id="filters" role="group" aria-label="Filters for every chart below"></div>
+  </div>
 
-  <section id="findings-sec" hidden>
+  <section id="s-findings" hidden>
     <h2>What the numbers say</h2>
     <div class="findings" id="findings"></div>
   </section>
 
-  <section>
+  <section id="s-pick">
+    <h2>Which engine for which kind of app</h2>
+    <p class="sub" id="prof-sub"></p>
+    <details class="note" id="prof-note"></details>
+    <div class="card tbl"><table class="board prof" id="profiles"></table></div>
+  </section>
+
+  <section id="s-scoreboard">
     <h2>Scoreboard</h2>
     <p class="sub" id="board-sub"></p>
     <div class="card tbl"><table class="board" id="board"></table></div>
   </section>
 
+  <section id="s-features">
+    <h2>Does the promised feature work?</h2>
+    <p class="sub">Each test, path and backend either rendered a verified frame, is not applicable because the engine has no such feature, or failed. Two marks per browser: WebGPU, then WebGL2.</p>
+    <div class="card tbl"><table class="conf" id="conf"></table><ul class="reasons" id="reasons"></ul></div>
+  </section>
+
   <div id="groups"></div>
 
-  <section>
-    <h2>Same engine, three WebGPU implementations</h2>
-    <p class="sub">CPU time per frame for each engine in Chrome (Dawn), Safari (WebKit) and Firefox (wgpu). CPU time is the one metric every browser reports identically — Safari caps the frame rate at the display refresh and Firefox's GPU timestamps are disabled (see methodology). Mid-ladder level for each scenario, current backend and path.</p>
+  <section id="s-browsers">
+    <h2>Same engine, different browsers</h2>
+    <p class="sub">CPU time per frame for each engine in each browser, at one fixed level per test, current backend and path. CPU time is the one metric every browser reports identically: Safari caps the frame rate at the display refresh.</p>
     <div class="card"><div class="bgrid" id="browsers"></div></div>
   </section>
 
-  <section>
+  <section id="s-backends">
     <h2>What WebGPU buys each engine</h2>
     <p class="sub" id="speedup-sub"></p>
     <div class="card"><div class="legend" id="speedup-legend"></div><div class="chart" id="speedup"></div></div>
   </section>
 
-  <section>
+  <section id="s-calls">
     <h2>How each engine drives the GPU</h2>
-    <p class="sub">WebGPU calls per frame recorded by the harness's probe (not the engine's own counters) for 1,000 animated meshes, plus live GPU memory from every buffer and texture the engine allocated.</p>
+    <p class="sub">WebGPU calls per frame recorded by the harness's probe (not the engine's own counters) for 1,000 animated meshes in a hierarchy, plus live GPU memory from every buffer and texture the engine allocated.</p>
     <div class="card tbl"><table id="calls"></table></div>
   </section>
 
-  <section>
+  <section id="s-footprint">
     <h2>Startup and footprint</h2>
-    <p class="sub">Shipped JavaScript for the smallest lit-cube app (tree-shaken, minified, brotli) and the time from navigation to the first rendered frame.</p>
+    <p class="sub">Shipped JavaScript (tree-shaken, minified, brotli) for the smallest lit-cube app and for a realistic one (glTF, animation, shadows, bloom), and the time from navigation to the first rendered frame.</p>
     <div class="two">
-      <div class="card"><h3>Bundle size</h3><p class="pathnote">Brotli-compressed, initial chunks of a minimal WebGPU app.</p><div class="chart" id="bundle"></div><div class="tbl" id="bundle-tbl"></div></div>
+      <div class="card"><h3>Bundle size</h3><p class="pathnote">Brotli-compressed, every chunk the build emits. Engines that load shaders or features on demand (Babylon.js, Babylon Lite, PixiJS 3D) download only part of this.</p><div class="chart" id="bundle"></div><div class="tbl" id="bundle-tbl"></div></div>
       <div class="card"><h3>Time to first frame</h3><p class="pathnote" id="ttff-note"></p><div class="chart" id="ttff"></div><div class="tbl" id="ttff-tbl"></div></div>
     </div>
   </section>
 
-  <section>
+  <section id="s-gallery">
     <h2>Did they render the same thing?</h2>
     <p class="sub">Frame 60 of each scene in Chrome on WebGPU, captured by the harness. Identical data in, so any visible difference is the engine's lighting model or defaults.</p>
     <div class="card"><div class="gallery" id="gallery"></div></div>
   </section>
 
-  <section>
-    <h2>Beyond the numbers</h2>
-    <p class="sub">What each engine offers on WebGPU today, as used to build this benchmark.</p>
-    <div class="card tbl"><table class="feat" id="features"></table></div>
+  <section id="s-api">
+    <h2>API friction</h2>
+    <p class="sub">Lines of TypeScript each adapter needed to build the same nine tests, by file. Fewer lines for the same result means less to write and maintain; a missing file means the engine had no path for that test.</p>
+    <div class="card tbl"><table id="loc"></table></div>
   </section>
 
-  <section>
+  <section id="s-method">
     <h2>Methodology and caveats</h2>
     <div class="method" id="method"></div>
   </section>
@@ -272,29 +377,39 @@ const ENG = {
   three: { label: 'three.js', color: 'var(--e-three)' },
   playcanvas: { label: 'PlayCanvas', color: 'var(--e-playcanvas)' },
   babylon: { label: 'Babylon.js', color: 'var(--e-babylon)' },
-  'three-classic': { label: 'three.js WebGLRenderer', color: 'var(--e-three-classic)' },
+  'babylon-lite': { label: 'Babylon Lite', color: 'var(--e-babylon-lite)' },
+  pixi3d: { label: 'PixiJS 3D', color: 'var(--e-pixi3d)' },
 };
-const MAIN = ['three', 'playcanvas', 'babylon'];
-const REP = { s1: 5000, s2: 100, s3: 100000, s4: 32, s8: 50, s8b: 50, s9: 1000000 };
+// three.js is one column: WebGPURenderer on WebGPU, the classic WebGLRenderer on WebGL2.
+const eid = (e, backend) => (e === 'three' && backend === 'webgl2' ? 'three-classic' : e);
+const MAIN = Object.keys(ENG).filter((e) => DATA.cells.some((c) => c.engine === e));
+const supports = (e, backend) => !(e === 'babylon-lite' && backend === 'webgl2');
+document.documentElement.style.setProperty('--n', MAIN.length);
+
+// One fixed level per test for cross-browser and cross-backend comparisons.
+const REP = { k1: 1, k2: 1000, k3: 2000, k4: 3, k5: 100000, k6: 50, k7: 1000, k7c: 1000000, k8: 10000, k9: 500 };
 const GROUPS = [
-  { title: 'CPU and draw calls', note: 'Scene graph, culling and command submission', ids: ['s1', 's2'] },
-  { title: 'GPU rendering features', note: 'Instancing, lighting, shadows, post', ids: ['s3', 's4', 's5', 's6'] },
-  { title: 'Real-world assets', note: 'glTF loading and skinned animation', ids: ['s7', 's8', 's8b'] },
-  { title: 'Compute', note: 'WebGPU-only GPU simulation', ids: ['s9'] },
-  { title: 'Startup', note: 'Engine download, init and first frame', ids: ['s0'] },
+  { key: 'K1', short: 'Startup', title: 'Startup and shipping', note: 'What the user downloads and waits for', ids: ['k1'] },
+  { key: 'K2', short: 'Objects', title: 'Dynamic objects', note: 'Scene graph, culling and command submission', ids: ['k2'] },
+  { key: 'K3', short: 'Churn', title: 'Lifecycle churn', note: 'Spawning and destroying objects mid-game', ids: ['k3'] },
+  { key: 'K4', short: 'Lit scene', title: 'Lit game frame', note: 'A real scene with shadows, lights and post stacked on', ids: ['k4'] },
+  { key: 'K5', short: 'World', title: 'Large world visibility', note: 'Does cost follow what exists or what is visible?', ids: ['k5'] },
+  { key: 'K6', short: 'Characters', title: 'Skinned characters', note: 'Skinning, animation sampling and blending', ids: ['k6'] },
+  { key: 'K7', short: 'Transparency', title: 'Transparency and particles', note: 'Sorted alpha blending; compute simulation', ids: ['k7', 'k7c'] },
+  { key: 'K8', short: 'Picking', title: 'Picking', note: 'What is under the pointer?', ids: ['k8'] },
+  { key: 'K9', short: 'HUD', title: 'HUD over 3D', note: 'A 2D interface on top of the scene, in the same canvas', ids: ['k9'] },
 ];
 const ABOUT = {
-  s0: 'One lit PBR cube. Measures engine download, initialization and time to first frame rather than rendering.',
-  s1: 'Individually animated meshes built from 8 geometry types with one shared material. Every object is its own draw, so this is the scene-graph and command-submission cost that dominates most real scenes.',
-  s2: '5,000 meshes spread over up to 1,000 materials that differ only in parameters. Tests how cheaply each engine switches material state.',
-  s3: 'One geometry drawn up to 500,000 times with every instance matrix rewritten each frame: the instancing path plus per-frame upload bandwidth.',
-  s4: 'A 400-sphere PBR scene lit by 8–512 moving point lights. Naive is the default forward path, measured up to 32 lights; optimized is clustered lighting where the engine has it.',
-  s5: '2,000 animated meshes over a ground plane, lit by a 4-cascade directional shadow and 4 shadow-casting spot lights.',
-  s6: 'The shadow scene rendered through an HDR post chain: bloom and ACES tone mapping, with MSAA on the scene pass.',
-  s7: 'Khronos Sponza (glTF, 50 MB of PNG/JPG textures): download and decode, time to first frame, then a scripted fly-through.',
-  s8: 'Up to 500 skinned Fox characters, each walking at its own phase: skinning, animation sampling and per-character draw overhead.',
-  s8b: 'The BrainStem model — many skinned primitives per character — to stress joint-heavy skinning.',
-  s9: 'Up to a million particles integrated in each engine\'s compute API and drawn as billboards. GPU-bound by design, WebGPU only.',
+  k1: 'One lit PBR cube. Measures engine download, initialization and time to first frame rather than rendering.',
+  k2: 'Individually animated meshes in groups of eight: every group spins and every child spins inside it, over 16 materials. Naive is a scene-graph node per object; optimized is each engine\'s instancing or batching path with the hierarchy flattened by hand.',
+  k3: '2,000 live meshes, 20 of them destroyed and recreated every frame (1,200 a second), each spawn with a new material and a new 128×128 texture. No pooling. What matters is the worst frame and whether memory keeps growing.',
+  k4: 'Khronos Sponza through a scripted fly-through, with features added one step at a time: 4-cascade sun shadows, 31 moving point lights, bloom, then 256 lights (which needs a clustered or many-light path).',
+  k5: 'A static world of 20,000 or 100,000 meshes at fixed density, so about 2,000 are in view either way. An engine that culls well costs the same at both sizes. Optimized is the engine\'s documented static-world path.',
+  k6: 'Skinned Fox characters, each crossfading between its walk and run clips at its own phase. Optimized is the engine\'s crowd path (baked or instanced skinning), which plays a single clip.',
+  k7: 'Half-transparent meshes that the engine must sort back to front every frame, with depth writes off.',
+  k7c: 'A million particles integrated in each engine\'s compute API and drawn as billboards. GPU-bound by design, WebGPU only.',
+  k8: '64 fixed screen points picked through the engine\'s own API against 10,000 meshes, and against a single one-million-triangle mesh. Naive is the default pick call; optimized is a first-party accelerated or GPU picker.',
+  k9: '1,000 spinning meshes under a game HUD drawn with the engine\'s own 2D stack: panels, 50 atlas icons, 30 labels whose text changes every frame, and a ladder of nameplates (icon, health bar, label) that all move every frame.',
 };
 const METRICS = {
   frameCost: { label: 'Frame cost', long: 'frame cost — the larger of CPU p95 and GPU p95, independent of vsync', get: (c) => c.frameCost?.med },
@@ -331,24 +446,55 @@ const fmtKB = (b) => `${Math.round(b / 1024).toLocaleString()} KB`;
 const fmtMB = (b) => (b == null ? '—' : `${(b / 1048576).toFixed(b < 10485760 ? 1 : 0)} MB`);
 const fmtTick = (v) => (v >= 1000 ? `${v / 1000}s` : v < 1 ? String(v) : String(v));
 
+
 const cellMap = new Map(DATA.cells.map((c) => [[c.browser, c.engine, c.backend, c.scenario, c.variant, c.level].join('|'), c]));
-const cell = (b, e, be, sc, v, l) => cellMap.get([b, e, be, sc, v, l].join('|'));
+const cell = (b, e, be, sc, v, l) => cellMap.get([b, eid(e, be), be, sc, v, l].join('|'));
+const ladderOf = (b, e, be, sc, v) => DATA.ladders.find((x) => x.browser === b && x.engine === eid(e, be) && x.backend === be && x.scenario === sc && x.variant === v);
 const def = (id) => DATA.scenarios.find((x) => x.id === id);
+const levelsOf = (d, v) => d.levelsFor?.[v] ?? d.levels;
 const browserNames = DATA.browsers.map((b) => b.name);
 const capped = (name) => (DATA.browsers.find((b) => b.name === name)?.calibration?.intervalP50 ?? 0) > 5;
+const fmtPct = (v) => `${(v * 100).toFixed(v < 0.1 ? 1 : 0)}%`;
+const fmtSignedMB = (b) => (b == null ? '—' : `${b >= 0 ? '+' : '−'}${(Math.abs(b) / 1048576).toFixed(1)} MB`);
 
 const state = { browser: browserNames.includes('Chrome') ? 'Chrome' : browserNames[0], backend: 'webgpu', variant: 'naive', metric: 'frameCost' };
+// Open detail panels, by scenario id.
+const opened = new Set();
+const allIds = () => DATA.scenarios.map((d) => d.id);
+const DEFAULTS = { ...state };
+const OPTIONS = { browser: browserNames, backend: ['webgpu', 'webgl2'], variant: ['naive', 'optimized'], metric: ['frameCost', 'interval', 'cpu', 'gpu'] };
+let anchor = '';
+// Hash is `#section?browser=Safari&backend=webgl2`: one link carries the place and the filters.
+function readHash() {
+  const [a, q = ''] = decodeURIComponent(location.hash.slice(1)).split('?');
+  anchor = a;
+  const ps = new URLSearchParams(q);
+  for (const [k, opts] of Object.entries(OPTIONS)) state[k] = opts.includes(ps.get(k)) ? ps.get(k) : DEFAULTS[k];
+  opened.clear();
+  if (ps.get('view') === 'detailed') allIds().forEach((id) => opened.add(id));
+}
+function writeHash() {
+  const ps = new URLSearchParams();
+  for (const k of Object.keys(OPTIONS)) if (state[k] !== DEFAULTS[k]) ps.set(k, state[k]);
+  if (opened.size === allIds().length) ps.set('view', 'detailed');
+  const q = ps.toString();
+  // Sandboxed frames may refuse history writes.
+  try { history.replaceState(null, '', anchor || q ? `#${anchor}${q ? `?${q}` : ''}` : location.pathname + location.search); } catch {}
+}
+readHash();
 const variantFor = (d) => (d.variants.includes(state.variant) ? state.variant : d.variants[0]);
-const enginesFor = (d, backend = state.backend) => [...MAIN, 'three-classic'].filter((e) => d.engines.includes(e) && (e !== 'three-classic' || backend === 'webgl2'));
+const enginesFor = (d, backend = state.backend) => (d.backends.includes(backend) ? MAIN : []);
 
+const NO_GL = { text: 'no WebGL2', title: 'Babylon Lite has no WebGL2 renderer', bad: false };
 function statusOf(c) {
   if (!c) return { text: 'not run', title: 'No run for this combination', bad: false };
   if (c.status === 'na') return { text: 'n/a', title: c.error?.replace(/^N\/A:\s*/, '') ?? 'Not applicable', bad: false };
   if (c.status === 'error') return { text: 'failed', title: c.error ?? 'failed', bad: true };
-  if (c.status === 'skipped') return { text: 'over budget', title: 'Skipped: a lower level already took over 100 ms per frame', bad: false };
+  if (c.status === 'skipped') return { text: 'over budget', title: 'Skipped: a lower level was already over the frame budget', bad: false };
   if (c.status === 'missing') return { text: 'not run', title: 'No run for this combination', bad: false };
   return null;
 }
+const stFor = (c, e, be) => (!supports(e, be) ? NO_GL : statusOf(c));
 const valueOf = (c, m = state.metric) => (c && (c.status === 'ok' || c.status === 'invalid') ? METRICS[m].get(c) : undefined);
 
 // ---------- tooltip ----------
@@ -377,6 +523,7 @@ function logTicks(lo, hi) {
 
 // ---------- charts ----------
 function lineChart(host, { levels, series, levelLabel, unit = 'ms' }) {
+  if (!host.clientWidth) return;
   host.replaceChildren();
   const pts = series.flatMap((se) => se.points.filter((p) => p.value > 0));
   if (!pts.length) return host.append(h('p', { class: 'empty' }, 'No completed runs for this selection.'));
@@ -444,6 +591,7 @@ function roundedBar(x, y, w, t) {
 }
 
 function barChart(host, rows, { fmt = fmtMsU, title = '' } = {}) {
+  if (!host.clientWidth) return;
   host.replaceChildren();
   const W = Math.max(280, host.clientWidth), labelW = W < 460 ? 104 : 168, rowH = 32, t = 16;
   const H = rows.length * rowH + 6;
@@ -517,62 +665,309 @@ function valueTd(c, m) {
   const st = statusOf(c);
   if (st) return h('td', {}, statusSpan(st));
   const v = valueOf(c, m);
-  return h('td', {}, fmtMs(v), c.status === 'invalid' ? h('span', { class: 'flag', title: c.error ?? 'GPU validation errors during the run' }, '!') : null);
+  return h('td', {}, fmtMs(v), c.status === 'invalid' ? h('span', { class: 'flag', title: c.error ?? 'GPU validation errors during the run' }, '!') : c.unstable ? h('span', { class: 'flag', title: `Unstable: another run of this cell failed — ${c.error ?? ''}` }, '!') : null);
 }
+
 
 // ---------- filters ----------
 function renderFilters() {
   const f = $('#filters');
   f.replaceChildren();
-  const seg = (name, label, opts) => h('div', { class: 'seg' }, h('span', {}, label), h('div', { class: 'opts' }, opts.map((o) => h('label', {}, h('input', { type: 'radio', name, id: `f-${name}-${o.value}`, value: o.value, checked: state[name] === o.value, disabled: o.disabled, onchange: () => { state[name] = o.value; renderAll(); } }), h('span', {}, o.label)))));
+  const seg = (name, label, opts, cur = state[name], set = (v) => (state[name] = v)) => h('div', { class: 'seg' }, h('span', {}, label), h('div', { class: 'opts' }, opts.map((o) => h('label', {}, h('input', { type: 'radio', name, id: `f-${name}-${o.value}`, value: o.value, checked: cur === o.value, disabled: o.disabled, onchange: () => { set(o.value); renderAll(); } }), h('span', {}, o.label)))));
   f.append(
     seg('browser', 'Browser', browserNames.map((b) => ({ value: b, label: b }))),
     seg('backend', 'Backend', [{ value: 'webgpu', label: 'WebGPU' }, { value: 'webgl2', label: 'WebGL2' }]),
     seg('variant', 'Path', [{ value: 'naive', label: 'Naive' }, { value: 'optimized', label: 'Optimized' }]),
     seg('metric', 'Metric', Object.entries(METRICS).map(([k, v]) => ({ value: k, label: v.label, disabled: (k === 'gpu' || k === 'frameCost') && !DATA.browsers.find((b) => b.name === state.browser)?.gpuTiming }))),
+    seg('view', 'View', [{ value: 'summary', label: 'Winners' }, { value: 'detailed', label: 'Full results' }], opened.size === allIds().length ? 'detailed' : opened.size ? '' : 'summary', (v) => {
+      opened.clear();
+      if (v === 'detailed') allIds().forEach((id) => opened.add(id));
+    }),
   );
 }
 
-// ---------- scoreboard ----------
-function renderBoard() {
-  $('#board-sub').textContent = `${state.browser}, ${state.backend === 'webgpu' ? 'WebGPU' : 'WebGL2'}, ${state.variant} path where it exists. Ladder scenarios show the largest load each engine sustains inside a 60 fps frame (from frame cost: the larger of CPU and GPU p95); single scenes show frame cost in milliseconds. Best in each row is bold.`;
-  const t = $('#board');
-  t.replaceChildren();
-  const engines = MAIN;
-  t.append(h('thead', {}, h('tr', {}, h('th', {}, 'Scenario'), engines.map((e) => h('th', {}, h('span', { class: 'dotkey', style: `background:${ENG[e].color}` }), ENG[e].label)))));
-  const body = h('tbody');
-  for (const d of DATA.scenarios) {
-    if (d.id === 's0') continue;
-    if (!d.backends.includes(state.backend)) continue;
-    const v = variantFor(d);
-    const ladder = d.levels.length > 1;
-    const entries = engines.map((e) => {
-      if (ladder) {
-        const L = DATA.ladders.find((x) => x.browser === state.browser && x.engine === e && x.backend === state.backend && x.scenario === d.id && x.variant === v);
-        const first = cell(state.browser, e, state.backend, d.id, v, d.levels[0]);
-        if (!L || L.bound == null) return { st: statusOf(first) ?? { text: 'not run', title: '' } };
-        if (L.bound === 'below') return { score: 0, text: `< ${fmtN(d.levels[0])}` };
-        return { score: L.maxAt60, text: `${L.bound === 'beyond' ? '≥ ' : ''}${fmtN(L.maxAt60)}` };
-      }
-      const c = cell(state.browser, e, state.backend, d.id, v, d.levels[0]);
-      const st = statusOf(c);
+// ---------- scoreboard rows ----------
+// Each row yields, per engine, { v, text } (a number to compare) or { st } (why there is none).
+const okCell = (c) => c && (c.status === 'ok' || c.status === 'invalid');
+function capRow(id, key, sc, v, label) {
+  const d = def(sc);
+  return {
+    id, key, label, sub: `max ${d.levelLabel} at 60 fps`, higher: true, backends: d.backends,
+    get(b, e, be) {
+      const levels = levelsOf(d, v).filter((l) => l > 0);
+      const L = ladderOf(b, e, be, sc, v);
+      if (!L || L.bound == null) return { st: stFor(cell(b, e, be, sc, v, levels[0]), e, be) ?? { text: 'not run', title: '' } };
+      if (L.bound === 'below') return { v: levels[0] / 2, text: `< ${fmtN(levels[0])}` };
+      return { v: L.maxAt60, text: `${L.bound === 'beyond' ? '≥ ' : ''}${fmtN(L.maxAt60)}` };
+    },
+  };
+}
+function cellRow(id, key, sc, v, level, label, sub, pick, fmt = fmtMsU, higher = false) {
+  return {
+    id, key, label, sub, higher, backends: def(sc).backends,
+    get(b, e, be) {
+      const c = cell(b, e, be, sc, v, level);
+      const st = stFor(c, e, be);
       if (st) return { st };
-      const val = c.frameCost?.med;
-      return val == null ? { st: { text: '—', title: 'no timing' } } : { score: 1 / val, text: fmtMsU(val) };
-    });
-    const best = Math.max(...entries.map((x) => x.score ?? -1));
-    const tr = h('tr', {}, h('td', {}, h('div', { class: 'scen-title-cell' }, h('span', {}, d.title), h('small', {}, ladder ? `max ${d.levelLabel} at 60 fps` : 'frame cost', v !== state.variant ? ` · ${v} only` : ''))));
+      const val = pick(c, b, e, be);
+      return val == null || !isFinite(val) ? { st: { text: '—', title: 'not measured in this browser' } } : { v: val, text: fmt(val) };
+    },
+  };
+}
+const bundleRow = (id, kind, label) => ({
+  id, key: 'K1', label, sub: 'brotli, every chunk including lazy-loaded ones', higher: false, backends: ['webgpu', 'webgl2'],
+  get(b, e, be) {
+    if (!supports(e, be)) return { st: NO_GL };
+    const m = DATA.bundle?.[kind]?.[eid(e, be)];
+    return m ? { v: m.total.brotli, text: fmtKB(m.total.brotli) } : { st: { text: 'not built', title: 'Run npm run bundle-size' } };
+  },
+});
+const cost = (c) => c.frameCost?.med ?? c.cpu?.p95?.med;
+const ROWS = [
+  bundleRow('bundleMin', 'minimal', 'Bundle: minimal app'),
+  bundleRow('bundleReal', 'realistic', 'Bundle: glTF, animation, shadows, bloom'),
+  cellRow('ttff', 'K1', 'k1', 'naive', 1, 'Time to first frame: lit cube', 'navigation to first frame on the GPU', (c) => c.timings?.ttff?.min),
+  cellRow('sponzaLoad', 'K1', 'k4', 'naive', 0, 'Time to first frame: Sponza', 'download, decode, compile, draw', (c) => c.timings?.ttff?.min),
+  capRow('k2n', 'K2', 'k2', 'naive', 'Dynamic objects, scene graph'),
+  capRow('k2o', 'K2', 'k2', 'optimized', 'Dynamic objects, instanced or batched'),
+  cellRow('k3worst', 'K3', 'k3', 'naive', 2000, 'Churn: worst frame', 'slowest CPU frame while spawning 1,200/s', (c) => c.long?.cpuMax?.med),
+  cellRow('k3cost', 'K3', 'k3', 'naive', 2000, 'Churn: typical frame', 'CPU p50', (c) => c.cpu?.p50?.med),
+  ...[0, 1, 2, 3, 4].map((step) => cellRow(`k4s${step}`, 'K4', 'k4', 'naive', step, `Sponza: ${DATA.k4Steps?.[step] ?? `step ${step}`}`, 'frame cost', cost)),
+  cellRow('k5cost', 'K5', 'k5', 'naive', 100000, 'World of 100k meshes', 'frame cost with ~2k in view', cost),
+  cellRow('k5ratio', 'K5', 'k5', 'naive', 100000, 'World-size penalty', 'cost at 100k ÷ cost at 20k; 1× is ideal', (c, b, e, be) => {
+    const small = cell(b, e, be, 'k5', 'naive', 20000);
+    return okCell(small) && cost(small) > 0 ? cost(c) / cost(small) : null;
+  }, (v) => `${v.toFixed(1)}×`),
+  cellRow('k5opt', 'K5', 'k5', 'optimized', 100000, 'World of 100k meshes, static path', 'frame cost with ~2k in view', cost),
+  capRow('k6n', 'K6', 'k6', 'naive', 'Skinned characters, crossfading'),
+  capRow('k6o', 'K6', 'k6', 'optimized', 'Skinned characters, crowd path'),
+  capRow('k7', 'K7', 'k7', 'naive', 'Sorted transparent meshes'),
+  cellRow('k7c', 'K7', 'k7c', 'naive', 1000000, 'Compute: 1M particles', 'frame cost', cost),
+  cellRow('k8mesh', 'K8', 'k8', 'naive', 10000, 'Pick among 10k meshes', 'ms per pick, default API', (c) => c.pick?.p50?.med),
+  cellRow('k8dense', 'K8', 'k8', 'naive', 1, 'Pick on a 1M-triangle mesh', 'ms per pick, default API', (c) => c.pick?.p50?.med),
+  cellRow('k8opt', 'K8', 'k8', 'optimized', 10000, 'Pick among 10k meshes, accelerated', 'ms per pick', (c) => c.pick?.p50?.med),
+  capRow('k9cap', 'K9', 'k9', 'naive', 'HUD nameplates over 3D'),
+  cellRow('k9cost', 'K9', 'k9', 'naive', 500, 'HUD cost at 500 nameplates', 'CPU p50 with the HUD minus without', (c, b, e, be) => {
+    const base = cell(b, e, be, 'k9', 'naive', 0);
+    return okCell(base) ? Math.max(0.01, c.cpu?.p50?.med - base.cpu?.p50?.med) : null;
+  }),
+];
+const rowById = Object.fromEntries(ROWS.map((r) => [r.id, r]));
+// three.js ships no UI layer: its HUD is this benchmark's own quad batcher, so it is shown but not ranked.
+rowById.k9cap.unranked = rowById.k9cost.unranked = ['three'];
+const OWN = { text: 'own code', title: 'three.js has no UI layer. This number is a quad batcher written for this benchmark, so it is shown but not ranked or scored.' };
+
+// One timing repeat per cell: anything within 5% of the best is a tie.
+const TIE = 0.95;
+const isWin = (x) => x.rel >= TIE;
+const dirText = (r) => (r.higher ? '↑ higher is better' : '↓ lower is better');
+const gid = (r) => r.key.toLowerCase();
+function go(id) {
+  return (e) => {
+    e?.preventDefault();
+    anchor = id;
+    writeHash();
+    document.getElementById(`s-${id}`)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  };
+}
+const starTd = (x, e, text, pct) => h('td', { class: 'best', style: `--c:${ENG[e].color}` }, h('span', { class: 'star', title: 'Best in this row' }, '★'), text, h('span', { class: 'meter', 'aria-hidden': 'true' }, h('i', { style: `width:${pct}%;background:${ENG[e].color}` })));
+// How far behind the best, in the row's own direction.
+function behind(r, rel) {
+  const k = 1 / rel;
+  if (k < 2) return r.higher ? `−${Math.round((1 - rel) * 100)}%` : `+${Math.round((k - 1) * 100)}%`;
+  return `${k < 10 ? k.toFixed(1) : Math.round(k).toLocaleString()}× ${r.higher ? 'less' : 'more'}`;
+}
+function verdict(r) {
+  const { entries } = evalRow(r, state.browser, state.backend);
+  const ranked = MAIN.map((e, i) => ({ e, ...entries[i] })).sort((a, b) => b.rel - a.rel);
+  const max = Math.max(...ranked.map((x) => (x.v > 0 && !x.unranked ? x.v : 0))) || 1;
+  const tied = ranked.filter(isWin).length > 1;
+  const rows = ranked.map((x) => {
+    const name = h('span', { class: 'nm' }, h('span', { class: 'dotkey', style: `background:${ENG[x.e].color}` }), ENG[x.e].label);
+    if (x.unranked) return h('div', { class: 'v-row', title: OWN.title }, name, h('span', { class: 'track' }, h('i', { style: `width:${Math.min(100, Math.max(1, (x.v / max) * 100))}%;background:${ENG[x.e].color}` })), h('span', { class: 'num' }, x.text, h('small', {}, `${OWN.text}, not ranked`)));
+    if (!(x.rel > 0)) return h('div', { class: 'v-row' }, name, h('span', { class: 'why' }, statusSpan(x.st ?? { text: '—', title: '' })));
+    const win = isWin(x);
+    return h('div', { class: `v-row${win ? ' win' : ''}` }, name, h('span', { class: 'track' }, h('i', { style: `width:${Math.max(1, (x.v / max) * 100)}%;background:${ENG[x.e].color}` })), h('span', { class: 'num' }, x.text, h('small', {}, win ? (tied ? 'Tied' : 'Winner') : behind(r, x.rel))));
+  });
+  return h('div', { class: 'verdict' }, h('div', { class: 'v-head' }, h('div', {}, h('b', {}, r.label), h('small', {}, r.sub)), h('span', { class: 'dir', title: r.higher ? 'Longer bar wins' : 'Shorter bar wins' }, dirText(r))), h('div', { class: 'v-rows' }, rows));
+}
+function tally(rows, label) {
+  const wins = MAIN.map(() => 0);
+  for (const r of rows) evalRow(r, state.browser, state.backend).entries.forEach((x, i) => { if (isWin(x)) wins[i]++; });
+  const chips = MAIN.map((e, i) => ({ e, n: wins[i] })).filter((x) => x.n).sort((a, b) => b.n - a.n);
+  return h('div', { class: 'tally' }, label, chips.map((x) => h('span', { class: 'chip' }, h('span', { class: 'dotkey', style: `background:${ENG[x.e].color}` }), ENG[x.e].label, h('small', {}, `${x.n} of ${rows.length}`))));
+}
+
+function evalRow(r, b, be) {
+  const entries = MAIN.map((e) => {
+    const x = r.get(b, e, be);
+    if (r.unranked?.includes(e) && x.v > 0) x.unranked = true;
+    return x;
+  });
+  const vals = entries.filter((x) => !x.unranked).map((x) => x.v).filter((v) => v > 0);
+  const best = vals.length ? (r.higher ? Math.max(...vals) : Math.min(...vals)) : null;
+  for (const x of entries) {
+    x.rel = !x.unranked && x.v > 0 && best ? (r.higher ? x.v / best : best / x.v) : 0;
+    // Index score: each doubling behind the best costs 0.3; ten times behind or worse is zero.
+    x.score = x.rel > 0 ? Math.max(0, 1 + Math.log10(x.rel)) : 0;
+  }
+  return { entries, best };
+}
+
+function renderBoard() {
+  $('#board-sub').textContent = `${state.browser}, ${state.backend === 'webgpu' ? 'WebGPU' : 'WebGL2'}. Capacity rows show the largest load each engine sustains inside a 60 fps frame, interpolated from frame cost (the larger of CPU and GPU p95); the other rows are costs. Each row says which direction is better and stars its winner; results within 5% of the best count as a tie. Click a test to jump to it.`;
+  const t = $('#board');
+  t.replaceChildren(h('thead', {}, h('tr', {}, h('th', {}, 'Test'), MAIN.map((e) => h('th', {}, h('span', { class: 'dotkey', style: `background:${ENG[e].color}` }), ENG[e].label)))));
+  const body = h('tbody');
+  const wins = MAIN.map(() => 0);
+  let n = 0;
+  for (const r of ROWS) {
+    if (!r.backends.includes(state.backend)) continue;
+    n++;
+    const { entries } = evalRow(r, state.browser, state.backend);
+    const tr = h('tr', {}, h('td', {}, h('div', { class: 'scen-title-cell' }, h('span', {}, h('span', { class: 'keytag' }, r.key), h('a', { href: `#${gid(r)}`, onclick: go(gid(r)) }, r.label)), h('small', {}, h('span', { class: 'dirtxt' }, dirText(r)), ` · ${r.sub}`))));
     entries.forEach((x, i) => {
       if (x.st) return tr.append(h('td', {}, statusSpan(x.st)));
-      const frac = best > 0 ? x.score / best : 0;
-      tr.append(h('td', { class: x.score === best && best > 0 ? 'best' : '' }, x.text, h('span', { class: 'meter', 'aria-hidden': 'true' }, h('i', { style: `width:${Math.round(frac * 100)}%;background:${ENG[engines[i]].color}` }))));
+      if (x.unranked) return tr.append(h('td', {}, x.text, h('span', { class: 'pill', title: OWN.title }, OWN.text)));
+      const pct = Math.round(x.rel * 100);
+      if (isWin(x)) {
+        wins[i]++;
+        return tr.append(starTd(x, MAIN[i], x.text, pct));
+      }
+      tr.append(h('td', {}, x.text, h('span', { class: 'meter', 'aria-hidden': 'true' }, h('i', { style: `width:${pct}%;background:${ENG[MAIN[i]].color}` }))));
+    });
+    body.append(tr);
+  }
+  const top = Math.max(...wins);
+  body.prepend(h('tr', { class: 'wins' }, h('td', {}, h('div', { class: 'scen-title-cell' }, h('span', {}, 'Rows won'), h('small', {}, `of ${n} in this view, ties included`))), wins.map((w, i) => (w === top && top > 0 ? starTd(null, MAIN[i], String(w), Math.round((w / n) * 100)) : h('td', {}, String(w), h('span', { class: 'meter', 'aria-hidden': 'true' }, h('i', { style: `width:${Math.round((w / n) * 100)}%;background:${ENG[MAIN[i]].color}` }))))) ));
+  t.append(body);
+}
+
+// ---------- use-case profiles ----------
+const PROFILES = [
+  { name: 'Action game', note: 'many moving things, spawning, effects, a HUD', w: { k2n: 2, k2o: 2, k3worst: 3, k3cost: 1, k6n: 2, k7: 2, k9cap: 2, k4s3: 1, ttff: 1 } },
+  { name: 'Large world', note: 'big static scenes, lighting, streaming', w: { k5cost: 3, k5ratio: 2, k5opt: 2, k4s3: 2, k4s4: 2, k2o: 1, sponzaLoad: 1 } },
+  { name: 'Configurator or archviz', note: 'fast start, one lit scene, picking', w: { bundleMin: 2, bundleReal: 2, ttff: 2, sponzaLoad: 2, k4s1: 2, k4s3: 1, k8mesh: 2, k8dense: 2 } },
+  { name: 'Crowds and strategy', note: 'many characters and units with nameplates', w: { k6n: 2, k6o: 3, k2o: 2, k9cap: 3, k9cost: 1, k8mesh: 1 } },
+  { name: '2D-heavy with some 3D', note: 'interface first, small download', w: { k9cap: 3, k9cost: 3, bundleMin: 2, ttff: 1, k3worst: 1 } },
+];
+function renderProfiles() {
+  const be = state.backend === 'webgpu' ? 'WebGPU' : 'WebGL2';
+  $('#prof-sub').textContent = `A 0 to 100 index for ${state.browser} on ${be}, built from the scoreboard rows each kind of app depends on. Under each kind: the pick, the runner-up and the rows that separated them.`;
+  $('#prof-note').replaceChildren(
+    h('summary', {}, h('span', { class: 'i', 'aria-hidden': 'true' }, 'ℹ'), 'How the pick is made, and what it leaves out'),
+    h('ul', {},
+      h('li', {}, 'Each scoreboard row scores an engine against the best engine in that row on a log scale: equal to the best is 1, twice as slow (or half the capacity) is 0.7, ten times or worse is 0. A test the engine cannot run scores 0.'),
+      h('li', {}, 'Each kind of app is a weighted average of the rows listed under it. The choice of rows and the weights are this report\'s judgement, not a standard: different weights give different picks.'),
+      h('li', {}, 'three.js has no UI layer, so the HUD rows score 0 for it. Its hand-written batcher is shown in the scoreboard, unranked.'),
+      h('li', {}, 'It only knows what was measured: speed, size and whether a feature exists, on one Apple M1 Pro, one timing run per cell. The picks change with the browser and backend selected above, and will differ on other GPUs and operating systems.'),
+      h('li', {}, 'It says nothing about editor and tooling, documentation, ecosystem, API stability, licence or what your team already knows. PixiJS 3D is a 0.1 release and Babylon Lite is weeks old.'),
+      h('li', {}, 'Scores within 3 points are called too close. Treat a pick as where to start looking, then check the rows that matter to your app.')),
+  );
+  const t = $('#profiles');
+  t.replaceChildren(h('thead', {}, h('tr', {}, h('th', {}, 'Kind of app'), MAIN.map((e) => h('th', {}, h('span', { class: 'dotkey', style: `background:${ENG[e].color}` }), ENG[e].label)))));
+  const body = h('tbody');
+  const cache = new Map();
+  const sc = (id) => {
+    if (!cache.has(id)) cache.set(id, evalRow(rowById[id], state.browser, state.backend).entries.map((x) => x.score));
+    return cache.get(id);
+  };
+  const names = (ds) => ds.map((x) => rowById[x.id].label).join('; ');
+  for (const p of PROFILES) {
+    const ids = Object.keys(p.w).filter((id) => rowById[id].backends.includes(state.backend));
+    const total = ids.reduce((a, id) => a + p.w[id], 0);
+    const scores = MAIN.map((e, i) => (supports(e, state.backend) ? Math.round((100 * ids.reduce((a, id) => a + p.w[id] * sc(id)[i], 0)) / total) : null));
+    const order = MAIN.map((_, i) => i).filter((i) => scores[i] != null).sort((a, b) => scores[b] - scores[a]);
+    const [first, second] = order;
+    const close = scores[first] - scores[second] <= 3;
+    // Rows by how much they moved the gap between the top two.
+    const diffs = ids.map((id) => ({ id, d: (p.w[id] * (sc(id)[first] - sc(id)[second])) / total })).sort((a, b) => b.d - a.d);
+    const ahead = diffs.filter((x) => x.d > 0.01).slice(0, 3), behind = diffs.filter((x) => x.d < -0.01).reverse().slice(0, 2);
+    const A = ENG[MAIN[first]].label, B = ENG[MAIN[second]].label;
+    const why = h('small', { class: 'why' }, h('b', {}, close ? `Too close to call: ${A} and ${B}. ` : `Pick: ${A}, then ${B}. `), ahead.length ? `${A} is ahead on: ${names(ahead)}. ` : '', behind.length ? `${B} is ahead on: ${names(behind)}.` : '');
+    const weights = ids.map((id) => `${rowById[id].label} ×${p.w[id]}`).join(' · ');
+    const tr = h('tr', {}, h('td', {}, h('div', { class: 'scen-title-cell' }, h('span', {}, p.name), h('small', {}, p.note), why, h('small', {}, `Weights: ${weights}`))));
+    scores.forEach((s0, i) => {
+      if (s0 == null) return tr.append(h('td', {}, statusSpan(NO_GL)));
+      const top = s0 > 0 && scores[first] - s0 <= (close ? 3 : 0);
+      tr.append(top ? starTd(null, MAIN[i], String(s0), s0) : h('td', {}, String(s0), h('span', { class: 'meter', 'aria-hidden': 'true' }, h('i', { style: `width:${s0}%;background:${ENG[MAIN[i]].color}` }))));
     });
     body.append(tr);
   }
   t.append(body);
 }
 
-// ---------- scenario cards ----------
+// ---------- conformance ----------
+function renderConformance() {
+  const t = $('#conf');
+  t.replaceChildren(h('thead', {}, h('tr', {}, h('th', {}, 'Test and path'), MAIN.map((e) => h('th', {}, h('span', { class: 'dotkey', style: `background:${ENG[e].color}` }), ENG[e].label)))));
+  const body = h('tbody');
+  const reasons = new Map();
+  const rows = [];
+  for (const d of DATA.scenarios) {
+    for (const v of d.variants) {
+      if (d.id === 'k4') levelsOf(d, v).forEach((l) => rows.push({ d, v, levels: [l], label: `Sponza: ${DATA.k4Steps?.[l] ?? l}` }));
+      else if (d.id === 'k8') levelsOf(d, v).forEach((l) => rows.push({ d, v, levels: [l], label: `${d.title}, ${l === 1 ? '1M-triangle mesh' : '10k meshes'}${d.variants.length > 1 ? `, ${v}` : ''}` }));
+      else rows.push({ d, v, levels: levelsOf(d, v), label: `${d.title}${d.variants.length > 1 ? `, ${v}` : ''}` });
+    }
+  }
+  const mark = (b, e, be, r) => {
+    if (!r.d.backends.includes(be)) return { cls: 'na', ch: ' ', title: 'WebGPU-only test' };
+    if (!supports(e, be)) return { cls: 'na', ch: '–', title: NO_GL.title };
+    const cs = r.levels.map((l) => cell(b, e, be, r.d.id, r.v, l)).filter(Boolean);
+    if (!cs.length) return { cls: 'na', ch: '·', title: 'not run' };
+    if (cs.some(okCell)) {
+      const shaky = cs.find((c) => c.unstable);
+      if (shaky) {
+        reasons.set(`${ENG[e].label} · ${r.label} · ${b} ${be === 'webgl2' ? 'WebGL2' : 'WebGPU'} unstable`, `one of its runs failed: ${shaky.error ?? ''}`);
+        return { cls: 'bad', ch: '!', title: `Unstable: one of its runs failed — ${shaky.error ?? ''}` };
+      }
+      const inv = cs.find((c) => c.status === 'invalid');
+      return inv ? { cls: 'bad', ch: '!', title: `GPU validation errors: ${inv.error ?? ''}` } : { cls: 'ok', ch: '✓', title: cs.find((c) => c.path)?.path ?? 'ok' };
+    }
+    const na = cs.find((c) => c.status === 'na');
+    if (na) {
+      const why = na.error?.replace(/^N\/A:\s*/, '') ?? '';
+      reasons.set(`${ENG[e].label} · ${r.label}${be === 'webgl2' ? ' (WebGL2)' : ''}`, why);
+      return { cls: 'na', ch: '–', title: why };
+    }
+    const er = cs.find((c) => c.status === 'error');
+    if (er) {
+      reasons.set(`${ENG[e].label} · ${r.label} · ${b} ${be === 'webgl2' ? 'WebGL2' : 'WebGPU'} failed`, er.error ?? '');
+      return { cls: 'bad', ch: '✗', title: er.error ?? 'failed' };
+    }
+    if (cs.some((c) => c.status === 'skipped')) return { cls: 'na', ch: '…', title: 'Skipped: an earlier step of this test was already over 100 ms per frame' };
+    return { cls: 'na', ch: '·', title: 'not run' };
+  };
+  for (const r of rows) {
+    const tr = h('tr', {}, h('td', {}, h('span', { class: 'keytag' }, r.d.key), h('a', { href: `#${r.d.key.toLowerCase()}`, onclick: go(r.d.key.toLowerCase()) }, r.label)));
+    for (const e of MAIN) {
+      const box = h('div', { class: 'marks' });
+      for (const b of browserNames) {
+        box.append(h('span', { class: 'b' }, b));
+        for (const be of ['webgpu', 'webgl2']) {
+          const m = mark(b, e, be, r);
+          box.append(h('span', { class: m.cls, title: `${b} ${be === 'webgpu' ? 'WebGPU' : 'WebGL2'}: ${m.title}` }, m.ch));
+        }
+      }
+      tr.append(h('td', {}, box));
+    }
+    body.append(tr);
+  }
+  t.append(body);
+  // Same reason on both backends reads once.
+  const seen = new Set();
+  const items = [];
+  for (const [k, why] of reasons) {
+    const base = k.replace(' (WebGL2)', '');
+    if (seen.has(base + why)) continue;
+    seen.add(base + why);
+    items.push(h('li', {}, h('b', {}, `${base}: `), why));
+  }
+  $('#reasons').replaceChildren(h('li', { style: 'list-style:none;margin-left:-18px' }, '✓ rendered · – not applicable · ✗ failed · ! rendered, but with GPU validation errors or a failed repeat · … skipped, an earlier step was already over 100 ms per frame'), ...items);
+}
+
+// ---------- test cards ----------
 const charts = [];
 function renderGroups() {
   const root = $('#groups');
@@ -581,93 +976,150 @@ function renderGroups() {
   for (const g of GROUPS) {
     const ids = g.ids.filter((id) => def(id) && def(id).backends.includes(state.backend));
     if (!ids.length) continue;
-    const sec = h('section', {}, h('div', { class: 'groupnote' }, g.note), h('h2', {}, g.title));
-    const stack = h('div', { class: 'stack' });
-    for (const id of ids) stack.append(scenarioCard(def(id)));
-    sec.append(stack);
+    const sec = h('section', { id: `s-${g.key.toLowerCase()}` }, h('div', { class: 'groupnote' }, `${g.key} · ${g.note}`), h('h2', {}, g.title));
+    const rows = ROWS.filter((r) => r.key === g.key && r.backends.includes(state.backend));
+    const text = h('div', {}, ids.map((id) => h('p', { class: 'sub', style: 'margin-bottom:12px' }, ids.length > 1 ? h('b', {}, `${def(id).title}. `) : null, ABOUT[id] ?? '')));
+    const shots = ids.map(demoShot).filter(Boolean);
+    sec.append(h('div', { class: `ghead${shots.length ? '' : ' solo'}` }, text, shots.length ? h('div', { class: 'shots' }, shots) : null));
+    text.append(tally(rows, 'Wins here'));
+    sec.append(h('div', { class: 'vgrid' }, rows.map(verdict)));
+    for (const id of ids) sec.append(scenarioCard(def(id)));
     root.append(sec);
   }
   requestAnimationFrame(() => charts.forEach((fn) => fn()));
 }
 
+// What the test looks like: the first engine's own frame, since all render the same scene.
+function demoShot(id) {
+  const x = MAIN.map((e) => DATA.gallery.find((g) => g.engine === e && g.scenario === id && g.backend === 'webgpu')).find(Boolean);
+  if (!x) return null;
+  const d = def(id);
+  return h('figure', {}, h('a', { href: '#gallery', onclick: go('gallery'), title: 'Compare every engine\'s frame' }, h('img', { src: x.img, alt: `${d.title} as rendered by ${ENG[x.engine].label}`, loading: 'lazy', decoding: 'async' })), h('figcaption', {}, `${d.title}${d.id === 'k4' || d.id === 'k1' ? '' : ` · ${levelName(d, x.level)} ${d.levelLabel}`} · as rendered by ${ENG[x.engine].label}`));
+}
+const engTd = (e) => h('td', { class: 'eng' }, h('span', { class: 'dotkey', style: `background:${ENG[e].color}` }), ENG[e].label);
+const levelName = (d, L) => (d.id === 'k4' ? DATA.k4Steps?.[L] ?? L : d.id === 'k8' && L === 1 ? '1M-tri mesh' : d.id === 'k9' && L === 0 ? 'no HUD' : fmtN(L));
+
 function scenarioCard(d) {
   const v = variantFor(d);
   const engines = enginesFor(d);
-  // Ladders carry a wide per-level table, so they stack; single scenes sit chart-beside-table.
-  const card = h('div', { class: `card scen${d.levels.length > 1 ? ' tall' : ''}` });
-  card.append(h('div', { class: 'scen-head' }, h('h3', {}, h('span', { class: 'id' }, d.id.toUpperCase()), d.title, v !== state.variant ? h('span', { class: 'pill' }, `${v} only`) : null), h('p', {}, ABOUT[d.id] ?? '')));
-  const chartBox = h('div', {}, legend(engines, d.levels.length === 1), h('div', { class: 'chart' }));
+  const b = state.browser, be = state.backend, m = state.metric;
+  const levels = levelsOf(d, v);
+  const get = (e, L) => cell(b, e, be, d.id, v, L);
+  const card = h('div', { class: `scen${levels.length > 1 || d.id === 'k3' ? ' tall' : ''}` });
+  const det = h('details', { class: 'card det', open: opened.has(d.id) }, h('summary', {}, `Full results: ${d.title}`, v !== state.variant ? h('span', { class: 'pill' }, `${v} only`) : null, h('small', {}, 'chart, every level, and the code path each engine used')), card);
+  det.addEventListener('toggle', () => {
+    if (det.open === opened.has(d.id)) return;
+    det.open ? opened.add(d.id) : opened.delete(d.id);
+    renderFilters();
+    writeHash();
+    charts.forEach((fn) => fn());
+  });
+  const chartBox = h('div', {}, legend(engines, !d.capacity), h('div', { class: 'chart' }));
   const host = chartBox.lastChild;
   const side = h('div', { class: 'tbl' });
-  const m = state.metric;
-  if (d.levels.length > 1) {
-    const series = engines.map((e) => ({
-      engine: e,
-      points: d.levels.map((L) => {
-        const c = cell(state.browser, e, state.backend, d.id, v, L);
-        return { level: L, value: valueOf(c, m), status: statusOf(c)?.text };
-      }),
-    }));
-    charts.push(() => lineChart(host, { levels: d.levels, series, levelLabel: d.levelLabel }));
-    const table = h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, `${METRICS[m].label} ms`), d.levels.map((L) => h('th', {}, fmtN(L))), h('th', {}, '60 fps max'))));
+  const td = (e, L, metric = m) => {
+    const st = stFor(get(e, L), e, be);
+    return st ? h('td', {}, statusSpan(st)) : valueTd(get(e, L), metric);
+  };
+
+  if (d.capacity) {
+    const ladder = levels.filter((L) => L > 0);
+    const series = engines.map((e) => ({ engine: e, points: ladder.map((L) => ({ level: L, value: valueOf(get(e, L), m), status: stFor(get(e, L), e, be)?.text })) }));
+    charts.push(() => lineChart(host, { levels: ladder, series, levelLabel: d.levelLabel }));
+    const table = h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, `${METRICS[m].label} ms`), levels.map((L) => h('th', {}, levelName(d, L))), h('th', {}, '60 fps max'))));
     const tb = h('tbody');
     for (const e of engines) {
-      const L = DATA.ladders.find((x) => x.browser === state.browser && x.engine === e && x.backend === state.backend && x.scenario === d.id && x.variant === v);
-      tb.append(h('tr', {}, h('td', { class: 'eng' }, h('span', { class: 'dotkey', style: `background:${ENG[e].color}` }), ENG[e].label), d.levels.map((lv) => valueTd(cell(state.browser, e, state.backend, d.id, v, lv), m)), h('td', {}, !L || L.bound == null ? '—' : L.bound === 'below' ? `< ${fmtN(d.levels[0])}` : `${L.bound === 'beyond' ? '≥ ' : ''}${fmtN(L.maxAt60)}`)));
+      const L = ladderOf(b, e, be, d.id, v);
+      tb.append(h('tr', {}, engTd(e), levels.map((lv) => td(e, lv)), h('td', {}, !L || L.bound == null ? '—' : L.bound === 'below' ? `< ${fmtN(ladder[0])}` : `${L.bound === 'beyond' ? '≥ ' : ''}${fmtN(L.maxAt60)}`)));
     }
     table.append(tb);
     side.append(table);
   } else {
-    const L = d.levels[0];
-    const rows = engines.map((e) => {
-      const c = cell(state.browser, e, state.backend, d.id, v, L);
-      return { label: ENG[e].label, color: ENG[e].color, value: valueOf(c, m), status: statusOf(c)?.text };
-    });
-    charts.push(() => barChart(host, rows, { title: `${d.title} · ${METRICS[m].label}` }));
-    const heavy = d.id === 's0' || d.id === 's7';
-    const table = h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, ''), h('th', {}, 'CPU p50'), h('th', {}, 'GPU p50'), h('th', {}, 'Interval'), heavy ? [h('th', {}, 'Load'), h('th', {}, 'First frame')] : h('th', {}, 'Draws'))));
-    const tb = h('tbody');
-    for (const e of engines) {
-      const c = cell(state.browser, e, state.backend, d.id, v, L);
-      const st = statusOf(c);
-      const tr = h('tr', {}, h('td', { class: 'eng' }, h('span', { class: 'dotkey', style: `background:${ENG[e].color}` }), ENG[e].label));
-      if (st) tr.append(h('td', { colspan: heavy ? 5 : 4 }, statusSpan(st)));
-      else {
-        tr.append(valueTd(c, 'cpu'), valueTd(c, 'gpu'), valueTd(c, 'interval'));
-        if (heavy) tr.append(h('td', {}, fmtMs(c.timings?.load?.min)), h('td', {}, fmtMs(c.timings?.ttff?.min)));
-        else tr.append(h('td', {}, c.counters?.draws != null ? Math.round(c.counters.draws).toLocaleString() : '—'));
+    const rep = levels.includes(REP[d.id]) ? REP[d.id] : levels.at(-1);
+    const picking = d.id === 'k8';
+    const val = (c) => (picking ? (okCell(c) ? c.pick?.p50?.med : undefined) : valueOf(c, m));
+    const rows = engines.map((e) => ({ label: ENG[e].label, color: ENG[e].color, value: val(get(e, rep)), status: stFor(get(e, rep), e, be)?.text }));
+    charts.push(() => barChart(host, rows, { title: `${d.title} · ${levels.length > 1 ? `${levelName(d, rep)} · ` : ''}${picking ? 'ms per pick' : METRICS[m].label}` }));
+    let table;
+    if (picking) {
+      table = h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, 'ms per pick'), levels.flatMap((L) => [h('th', {}, `${levelName(d, L)} p50`), h('th', {}, 'p95'), h('th', {}, 'hits')]))));
+      const tb = h('tbody');
+      for (const e of engines) {
+        const tr = h('tr', {}, engTd(e));
+        for (const L of levels) {
+          const c = get(e, L), st = stFor(c, e, be);
+          if (st) tr.append(h('td', { colspan: 3 }, statusSpan(st)));
+          else tr.append(h('td', {}, fmtMs(c.pick?.p50?.med)), h('td', {}, fmtMs(c.pick?.p95?.med)), h('td', {}, c.pick ? `${c.pick.hits}/${c.pick.points}` : '—'));
+        }
+        tb.append(tr);
       }
-      tb.append(tr);
+      table.append(tb);
+    } else if (d.id === 'k3') {
+      table = h('table', {}, h('thead', {}, h('tr', {}, ['', 'CPU p50', 'CPU p95', 'Worst frame', 'Frames > 16.7 ms', 'JS heap growth', be === 'webgpu' ? 'GPU memory growth' : 'GL textures growth', 'Pipelines built'].map((x) => h('th', {}, x)))));
+      const tb = h('tbody');
+      for (const e of engines) {
+        const c = get(e, levels[0]), st = stFor(c, e, be);
+        const tr = h('tr', {}, engTd(e));
+        if (st) tr.append(h('td', { colspan: 7 }, statusSpan(st)));
+        else {
+          const g = c.growth ?? {};
+          tr.append(valueTd(c, 'cpu'), h('td', {}, fmtMs(c.cpu?.p95?.med)), h('td', {}, fmtMsU(c.long?.cpuMax?.med)), h('td', {}, c.long?.frames?.med ? `${Math.round(c.long.cpuOver16?.med ?? 0)} of ${Math.round(c.long.frames.med)}` : '—'), h('td', {}, fmtSignedMB(g.jsHeap?.med)), h('td', {}, be === 'webgpu' ? fmtSignedMB(g.gpuBytes) : g.glTextures == null ? '—' : `${g.glTextures >= 0 ? '+' : ''}${g.glTextures}`), h('td', {}, g.pipelines == null ? '—' : String(g.pipelines)));
+        }
+        tb.append(tr);
+      }
+      table.append(tb);
+    } else if (levels.length > 1) {
+      table = h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, `${METRICS[m].label} ms`), levels.map((L) => h('th', {}, levelName(d, L))), d.id === 'k4' ? h('th', {}, 'Load to first frame') : null)));
+      const tb = h('tbody');
+      for (const e of engines) tb.append(h('tr', {}, engTd(e), levels.map((L) => td(e, L)), d.id === 'k4' ? h('td', {}, fmtMsU(get(e, 0)?.timings?.ttff?.min)) : null));
+      table.append(tb);
+    } else {
+      const L = levels[0];
+      const heavy = d.id === 'k1';
+      table = h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, ''), h('th', {}, 'CPU p50'), h('th', {}, 'GPU p50'), h('th', {}, 'Interval'), heavy ? [h('th', {}, 'Load'), h('th', {}, 'First frame')] : h('th', {}, 'Draws'))));
+      const tb = h('tbody');
+      for (const e of engines) {
+        const c = get(e, L), st = stFor(c, e, be);
+        const tr = h('tr', {}, engTd(e));
+        if (st) tr.append(h('td', { colspan: heavy ? 5 : 4 }, statusSpan(st)));
+        else {
+          tr.append(valueTd(c, 'cpu'), valueTd(c, 'gpu'), valueTd(c, 'interval'));
+          if (heavy) tr.append(h('td', {}, fmtMs(c.timings?.load?.min)), h('td', {}, fmtMs(c.timings?.ttff?.min)));
+          else tr.append(h('td', {}, c.counters?.draws != null ? Math.round(c.counters.draws).toLocaleString() : '—'));
+        }
+        tb.append(tr);
+      }
+      table.append(tb);
     }
-    table.append(tb);
     side.append(table);
   }
   const paths = engines.map((e) => {
-    const c = d.levels.map((L) => cell(state.browser, e, state.backend, d.id, v, L)).find((x) => x?.path);
+    // K4's path changes with the feature step: show the fullest one that ran.
+    const c = [...levels].reverse().map((L) => get(e, L)).find((x) => x?.path);
     return c ? h('div', {}, h('b', {}, `${ENG[e].label}: `), c.path, c.notes?.length ? ` — ${c.notes.join('; ')}` : '') : null;
   }).filter(Boolean);
   if (paths.length) side.append(h('div', { class: 'pathnote' }, paths));
   card.append(chartBox, side);
-  return card;
+  return det;
 }
 
 // ---------- browsers ----------
 function renderBrowsers() {
   const g = $('#browsers');
-  g.replaceChildren(h('div', { class: 'hd' }, 'Scenario'), ...MAIN.map((e) => h('div', { class: 'hd' }, h('span', { class: 'dotkey', style: `background:${ENG[e].color}` }), ENG[e].label)));
+  g.replaceChildren(h('div', { class: 'hd' }, 'Test'), ...MAIN.map((e) => h('div', { class: 'hd' }, h('span', { class: 'dotkey', style: `background:${ENG[e].color}` }), ENG[e].label)));
   for (const d of DATA.scenarios) {
     if (!d.backends.includes(state.backend)) continue;
-    const L = REP[d.id] ?? d.levels[0];
     const v = variantFor(d);
+    const L = levelsOf(d, v).includes(REP[d.id]) ? REP[d.id] : levelsOf(d, v)[0];
     const vals = MAIN.flatMap((e) => browserNames.map((b) => valueOf(cell(b, e, state.backend, d.id, v, L), 'cpu') ?? 0));
     const max = Math.max(...vals) || 1;
-    g.append(h('div', { class: 'scen-title-cell' }, h('span', {}, d.title), h('small', {}, `${fmtN(L)} ${d.levelLabel}`)));
+    g.append(h('div', { class: 'scen-title-cell' }, h('span', {}, d.title), h('small', {}, `${levelName(d, L)}${d.id === 'k4' ? '' : ` ${d.levelLabel}`}`)));
     for (const e of MAIN) {
       const box = h('div', { class: 'ecell', 'data-engine': ENG[e].label });
       for (const b of browserNames) {
         const c = cell(b, e, state.backend, d.id, v, L);
         const val = valueOf(c, 'cpu');
-        const st = statusOf(c);
+        const st = stFor(c, e, state.backend);
         box.append(h('div', { class: 'mini' }, h('span', {}, b), val > 0 ? h('div', { class: 'bar', style: `width:${Math.max(2, (val / max) * 100)}%;background:${ENG[e].color}` }) : h('span', { class: 'st', title: st?.title ?? '' }, st?.text ?? '—'), h('span', { class: 'v' }, val > 0 ? fmtMsU(val) : '')));
       }
       g.append(box);
@@ -678,18 +1130,18 @@ function renderBrowsers() {
 // ---------- WebGPU vs WebGL2 ----------
 function renderSpeedup() {
   const metric = capped(state.browser) ? 'cpu' : 'interval';
-  $('#speedup-sub').textContent = `WebGL2 time divided by WebGPU time for the same engine and scene in ${state.browser} (${metric === 'cpu' ? 'CPU p50, since this browser is vsync-capped' : 'frame interval p50: real throughput'}), mid-ladder level, ${state.variant} path where it exists. Right of 1× means the engine is faster on WebGPU.`;
+  $('#speedup-sub').textContent = `WebGL2 time divided by WebGPU time for the same engine and scene in ${state.browser} (${metric === 'cpu' ? 'CPU p50, since this browser is vsync-capped' : 'frame interval p50: real throughput'}), one fixed level per test, ${state.variant} path where it exists. Right of 1× means the engine is faster on WebGPU. For three.js this compares WebGPURenderer with the classic WebGLRenderer. Babylon Lite has no WebGL2 renderer.`;
   const rows = [];
   for (const d of DATA.scenarios) {
     if (!d.backends.includes('webgl2') || !d.backends.includes('webgpu')) continue;
-    const L = REP[d.id] ?? d.levels[0];
     const v = variantFor(d);
+    const L = levelsOf(d, v).includes(REP[d.id]) ? REP[d.id] : levelsOf(d, v)[0];
     const dots = MAIN.map((e) => {
       const gpu = valueOf(cell(state.browser, e, 'webgpu', d.id, v, L), metric);
       const gl = valueOf(cell(state.browser, e, 'webgl2', d.id, v, L), metric);
       return { engine: e, value: gpu > 0 && gl > 0 ? gl / gpu : undefined, gpu, gl };
     });
-    if (dots.some((x) => x.value > 0)) rows.push({ label: `${d.title} · ${fmtN(L)}`, dots });
+    if (dots.some((x) => x.value > 0)) rows.push({ label: `${d.title} · ${levelName(d, L)}`, dots });
   }
   $('#speedup-legend').replaceWith(Object.assign(legend(MAIN, true), { id: 'speedup-legend' }));
   const host = $('#speedup');
@@ -700,7 +1152,7 @@ function renderSpeedup() {
 function renderCalls() {
   const t = $('#calls');
   t.replaceChildren();
-  const cs = MAIN.map((e) => cell(state.browser, e, 'webgpu', 's1', 'naive', 1000));
+  const cs = MAIN.map((e) => cell(state.browser, e, 'webgpu', 'k2', 'naive', 1000));
   const rows = [
     ['Draw calls', (c) => c.counters?.draws],
     ['setPipeline', (c) => c.counters?.setPipeline],
@@ -715,7 +1167,7 @@ function renderCalls() {
     ['GPU textures alive', (c) => c.gpuMem?.texture, fmtMB],
     ['JS heap', (c) => c.jsHeap?.med, fmtMB],
   ];
-  t.append(h('thead', {}, h('tr', {}, h('th', {}, `Per frame · ${state.browser} · S1 · 1,000 meshes`), MAIN.map((e) => h('th', {}, h('span', { class: 'dotkey', style: `background:${ENG[e].color}` }), ENG[e].label)))));
+  t.append(h('thead', {}, h('tr', {}, h('th', {}, `Per frame · ${state.browser} · K2 · 1,000 meshes`), MAIN.map((e) => h('th', {}, h('span', { class: 'dotkey', style: `background:${ENG[e].color}` }), ENG[e].label)))));
   const tb = h('tbody');
   for (const [label, get, fmt] of rows) {
     tb.append(h('tr', {}, h('td', {}, label), cs.map((c) => {
@@ -728,35 +1180,33 @@ function renderCalls() {
 
 // ---------- footprint ----------
 function renderFootprint() {
-  const b = DATA.bundle;
-  const eng = [...MAIN, 'three-classic'];
-  if (b?.minimal) {
-    const rows = eng.filter((e) => b.minimal[e]).map((e) => ({ label: ENG[e].label, color: ENG[e].color, value: b.minimal[e].initial.brotli }));
-    requestAnimationFrame(() => barChart($('#bundle'), rows, { fmt: fmtKB, title: 'Minimal app, brotli' }));
-    const t = h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, ''), h('th', {}, 'Raw'), h('th', {}, 'Gzip'), h('th', {}, 'Brotli'), h('th', {}, 'Benchmark adapter'))));
+  const bd = DATA.bundle;
+  const be = state.backend;
+  const eng = MAIN.filter((e) => supports(e, be));
+  if (bd?.minimal) {
+    const rows = eng.flatMap((e) => [['minimal', 'minimal'], ['realistic', 'realistic']].filter(([k]) => bd[k]?.[eid(e, be)]).map(([k, name]) => ({ label: `${ENG[e].label} · ${name}`, color: ENG[e].color, value: bd[k][eid(e, be)].total.brotli })));
+    requestAnimationFrame(() => barChart($('#bundle'), rows, { fmt: fmtKB, title: 'Bundle, brotli' }));
+    const t = h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, ''), h('th', {}, 'Minimal raw'), h('th', {}, 'Minimal brotli'), h('th', {}, 'Realistic raw'), h('th', {}, 'Realistic brotli'))));
     const tb = h('tbody');
     for (const e of eng) {
-      const m = b.minimal[e], f = b.full?.[e];
-      if (!m) continue;
-      tb.append(h('tr', {}, h('td', { class: 'eng' }, h('span', { class: 'dotkey', style: `background:${ENG[e].color}` }), ENG[e].label), h('td', {}, fmtKB(m.initial.raw)), h('td', {}, fmtKB(m.initial.gzip)), h('td', {}, fmtKB(m.initial.brotli)), h('td', {}, f ? fmtKB(f.total.brotli) : '—')));
+      const m = bd.minimal[eid(e, be)], r = bd.realistic?.[eid(e, be)];
+      tb.append(h('tr', {}, engTd(e), h('td', {}, m ? fmtKB(m.total.raw) : '—'), h('td', {}, m ? fmtKB(m.total.brotli) : '—'), h('td', {}, r ? fmtKB(r.total.raw) : '—'), h('td', {}, r ? fmtKB(r.total.brotli) : '—')));
     }
     t.append(tb);
     $('#bundle-tbl').replaceChildren(t);
   } else $('#bundle').replaceChildren(h('p', { class: 'empty' }, 'Run npm run bundle-size to measure.'));
 
-  const be = state.backend;
-  $('#ttff-note').textContent = `S0 in ${state.browser} on ${be === 'webgpu' ? 'WebGPU' : 'WebGL2'}: navigation start to the first frame finished on the GPU, including engine download, init and shader compilation.`;
-  const es = [...MAIN, ...(be === 'webgl2' ? ['three-classic'] : [])];
-  const rows = es.map((e) => {
-    const c = cell(state.browser, e, be, 's0', 'naive', 1);
+  $('#ttff-note').textContent = `K1 in ${state.browser} on ${be === 'webgpu' ? 'WebGPU' : 'WebGL2'}: navigation start to the first frame finished on the GPU, including engine download, init and shader compilation.`;
+  const rows = eng.map((e) => {
+    const c = cell(state.browser, e, be, 'k1', 'naive', 1);
     return { label: ENG[e].label, color: ENG[e].color, value: c?.timings?.ttff?.min, status: statusOf(c)?.text };
   });
   requestAnimationFrame(() => barChart($('#ttff'), rows, { title: 'Time to first frame' }));
-  const t = h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, ''), h('th', {}, 'Import'), h('th', {}, 'Init'), h('th', {}, 'First frame'), h('th', {}, 'GPU memory'))));
+  const t = h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, ''), h('th', {}, 'Import'), h('th', {}, 'Init'), h('th', {}, 'First frame'), h('th', {}, 'Sponza to first frame'))));
   const tb = h('tbody');
-  for (const e of es) {
-    const c = cell(state.browser, e, be, 's0', 'naive', 1);
-    tb.append(h('tr', {}, h('td', { class: 'eng' }, h('span', { class: 'dotkey', style: `background:${ENG[e].color}` }), ENG[e].label), h('td', {}, fmtMsU(c?.timings?.import?.min)), h('td', {}, fmtMsU(c?.timings?.init?.min)), h('td', {}, fmtMsU(c?.timings?.firstFrame?.min)), h('td', {}, c?.gpuMem ? fmtMB(c.gpuMem.buffer + c.gpuMem.texture) : '—')));
+  for (const e of eng) {
+    const c = cell(state.browser, e, be, 'k1', 'naive', 1), sp = cell(state.browser, e, be, 'k4', 'naive', 0);
+    tb.append(h('tr', {}, engTd(e), h('td', {}, fmtMsU(c?.timings?.import?.min)), h('td', {}, fmtMsU(c?.timings?.init?.min)), h('td', {}, fmtMsU(c?.timings?.firstFrame?.min)), h('td', {}, fmtMsU(sp?.timings?.ttff?.min))));
   }
   t.append(tb);
   $('#ttff-tbl').replaceChildren(t);
@@ -775,45 +1225,38 @@ function renderGallery() {
   }
 }
 
-// ---------- features ----------
-function renderFeatures() {
-  const rows = [
-    ['Shader authoring', 'TSL node graphs, compiled to WGSL or GLSL', 'WGSL and GLSL shader chunks', 'WGSL and GLSL; Node Material Editor'],
-    ['Compute', 'TSL compute (instancedArray, Fn().compute)', 'Compute + StorageBuffer, WGSL', 'ComputeShader + StorageBuffer, WGSL'],
-    ['Many lights', 'ClusteredLighting addon (point lights)', 'Clustered lighting on by default', 'ClusteredLightContainer (9.0)'],
-    ['Render bundles / replay', 'BundleGroup', 'No public API', 'Non-compatibility mode, snapshot rendering'],
-    ['Pipeline pre-warm', 'compileAsync()', 'None — pipelines build on first draw', 'createRenderPipelineAsync (9.1), whenReadyAsync'],
-    ['WebGL2 fallback', 'Automatic in WebGPURenderer; classic WebGLRenderer', 'Automatic device fallback', 'Separate Engine class'],
-    ['Built-in GPU timing', 'trackTimestamp + resolveTimestampsAsync', 'device.gpuProfiler (span per frame)', 'Main pass only'],
-    ['Tree-shaking', 'Named ESM imports', 'ESM, sideEffects: false', 'Deep imports or the pure barrel (9.8+)'],
-    ['Types', '@types/three (separate package)', 'Bundled .d.ts', 'Written in TypeScript'],
-    ['License', 'MIT', 'MIT', 'Apache 2.0'],
-  ];
-  const t = $('#features');
-  t.replaceChildren(h('thead', {}, h('tr', {}, h('th', {}, ''), MAIN.map((e) => h('th', {}, h('span', { class: 'dotkey', style: `background:${ENG[e].color}` }), `${ENG[e].label} ${DATA.engines[e] ?? ''}`)))));
-  t.append(h('tbody', {}, rows.map((r) => h('tr', {}, r.map((x) => h('td', {}, x))))));
+// ---------- adapter size ----------
+function renderLoc() {
   const loc = DATA.bundle?.loc;
-  if (loc) {
-    const sum = (e) => Object.values(loc[e] ?? {}).reduce((a, b) => a + b, 0);
-    t.tBodies[0].append(h('tr', {}, h('td', {}, 'Benchmark adapter size'), MAIN.map((e) => h('td', {}, `${sum(e).toLocaleString()} lines of TypeScript`))));
-  }
+  const t = $('#loc');
+  if (!loc) return t.replaceChildren(h('tbody', {}, h('tr', {}, h('td', {}, 'Run npm run bundle-size to count.'))));
+  // three.js's two renderers share most builders; count the shared files once.
+  const filesOf = (e) => (e === 'three' ? { ...loc.three, ...Object.fromEntries(Object.entries(loc['three-classic'] ?? {}).map(([k, v]) => [`classic/${k}`, v])) } : loc[e] ?? {});
+  const names = [...new Set(MAIN.flatMap((e) => Object.keys(filesOf(e)).map((f) => f.replace(/^classic\//, '').replace(/-(webgpu|webgl)\.ts$/, '.ts'))))].sort();
+  const sum = (e, name) => Object.entries(filesOf(e)).filter(([f]) => f.replace(/^classic\//, '').replace(/-(webgpu|webgl)\.ts$/, '.ts') === name).reduce((a, [, n]) => a + n, 0);
+  t.replaceChildren(h('thead', {}, h('tr', {}, h('th', {}, 'Adapter file'), MAIN.map((e) => h('th', {}, h('span', { class: 'dotkey', style: `background:${ENG[e].color}` }), ENG[e].label)))));
+  const tb = h('tbody');
+  for (const n of names) tb.append(h('tr', {}, h('td', {}, n), MAIN.map((e) => h('td', {}, sum(e, n) ? sum(e, n).toLocaleString() : '—'))));
+  tb.append(h('tr', {}, h('td', {}, h('b', {}, 'Total lines')), MAIN.map((e) => h('td', { class: 'best' }, Object.values(filesOf(e)).reduce((a, b) => a + b, 0).toLocaleString()))));
+  t.append(tb);
 }
 
 // ---------- method ----------
 function renderMethod() {
   const m = $('#method');
-  const bl = DATA.browsers.map((b) => `${b.name} ${b.version.split('.').slice(0, 2).join('.')} (${b.impl}): ${b.calibration?.intervalP50 != null ? (b.calibration.intervalP50 > 5 ? `capped at ${fmtMsU(b.calibration.intervalP50)} per frame` : `uncapped, ${fmtMsU(b.calibration.intervalP50)} floor`) : 'no calibration'}; GPU timestamps ${b.gpuTiming ? 'on' : 'off'}${b.canary?.spread != null ? `; canary spread ±${(b.canary.spread * 100).toFixed(1)}%` : ''}; ${b.counts.ok} runs ok, ${b.counts.error} failed, ${b.counts.skipped} skipped past budget.`);
+  const bl = DATA.browsers.map((b) => `${b.name} ${b.version.split('.').slice(0, 2).join('.')} (${b.impl}): ${b.calibration?.intervalP50 != null ? (b.calibration.intervalP50 > 5 ? `capped at ${fmtMsU(b.calibration.intervalP50)} per frame` : `uncapped, ${fmtMsU(b.calibration.intervalP50)} floor`) : 'no calibration'}; GPU timestamps ${b.gpuTiming ? 'on' : 'off'}${b.canary?.spread != null ? `; canary spread ±${(b.canary.spread * 100).toFixed(1)}%` : ''}; ${b.profile} profile; ${b.counts.ok} runs ok, ${b.counts.na ?? 0} not applicable, ${b.counts.error} failed, ${b.counts.skipped} skipped past budget.`);
   const P = (html) => { const p = h('p'); p.innerHTML = html; return p; };
   m.replaceChildren(
-    P('<b>One harness, three engines.</b> Every run is a fresh page load. The harness owns the only <code>requestAnimationFrame</code> loop, advances scene data with a fixed 1/60 s step, and calls the engine for exactly one update-and-render. Scene data — geometry, transforms, lights, materials, camera — is generated once by a seeded RNG and handed to each engine as plain arrays, so frame <i>k</i> is the same scene everywhere.'),
-    P('<b>Measured, not reported.</b> Before any engine loads, the harness patches the WebGPU prototypes: it adds <code>timestamp-query</code> to the device, writes timestamps around every render and compute pass, and reads them back asynchronously. GPU time is the smaller of two readings. The span from the first pass start to the last pass end counts idle gaps when an engine submits passes while the CPU is still building the frame; the sum of pass durations double-counts passes that overlap on Apple’s tile-based GPU. Busy time is at most either one. With vsync and the frame-rate limit off, Chrome and Firefox let JavaScript run ahead of the GPU — commands queue in the browser’s GPU process — so their frame interval reflects CPU-side throughput and GPU time is the GPU cost; in very GPU-heavy scenes that queueing can inflate Chrome’s GPU readings. Safari’s capped loop stays coupled to the GPU, which makes it the cross-check. A separate counters run wraps the hot calls (draws, pipeline and bind-group sets, buffer writes) and tracks every buffer and texture allocation.'),
-    P('<b>Protocol.</b> Warm-up runs at least 90 frames and 1.5 s and continues until no new GPU pipeline has been created for 30 frames, so shader compilation never lands in the measurement. The measurement then covers at least 240 frames and 3 s (capped at 15 s for very slow levels). Each cell is repeated in separate page loads and the median is reported; load and startup times use the fastest repeat, since the first load of an asset runs against a cold HTTP cache. Engine order is shuffled within each block, and a fixed canary cell reruns periodically to measure run-to-run spread. Any run in another browser that issues fewer than half of Chrome’s draw calls for the same cell is marked failed: a shader can fail to compile without raising a GPU error, leaving healthy-looking timings for an empty frame. A ladder stops climbing once a level takes more than 100 ms per frame, and a run that stalls is retried once before it counts as failed. The ladders also stop short of levels that saturate the GPU for seconds per frame (forward lighting past 32 lights, 4M particles, 1M instances): on a laptop they freeze the desktop.'),
-    P('<b>Fairness.</b> 1920×1080 device pixels, 4× MSAA, ACES tone mapping and sRGB output on every engine; opaque canvases; production builds only. Light intensities were calibrated so screenshots match (three.js and Babylon.js divide Lambert diffuse by π, PlayCanvas does not). “Naive” uses each engine’s default scene graph; “optimized” uses the fastest documented fast path, named under each chart.'),
+    P('<b>One harness, every engine.</b> Every run is a fresh page load. The harness owns the only <code>requestAnimationFrame</code> loop, advances scene data with a fixed 1/60 s step, and calls the engine for exactly one update-and-render. Scene data — geometry, transforms, lights, materials, camera, HUD layout — is generated once by a seeded RNG and handed to each engine as plain arrays, so frame <i>k</i> is the same scene everywhere.'),
+    P('<b>Measured, not reported.</b> Before any engine loads, the harness patches the WebGPU prototypes: it adds <code>timestamp-query</code> to the device, writes timestamps around every render and compute pass, and reads them back asynchronously. GPU time is the smaller of the span from first pass start to last pass end and the sum of pass durations. Frame cost is the larger of CPU p95 and GPU p95, which does not depend on vsync. In Safari, which is capped and has no GPU timer on WebGL2, a frame interval above 20 ms counts as the frame cost too. A separate counters run wraps the hot calls and tracks every buffer and texture allocation; on WebGL2, where sizes are not visible, it counts live buffers and textures instead.'),
+    P('<b>Capacity.</b> Ladder tests double the load until a level costs more than the 16.7 ms budget, then stop. The capacity is interpolated between the last level inside the budget and the first one over it, so it is accurate to within one doubling. Other tests run every level. Picks are timed one at a time after the frame measurement, three passes over 64 fixed points.'),
+    P('<b>Protocol.</b> Warm-up runs at least 90 frames and 1.5 s and continues until no new GPU pipeline has been created for 30 frames. The measurement then covers at least 240 frames and 3 s (600 frames and 10 s for the churn test). Load and startup times use the fastest repeat. Engine order is shuffled within each block, and a fixed canary cell reruns periodically to measure run-to-run spread. A run in another browser that issues fewer than half of Chrome’s draw calls for the same cell is marked failed.'),
+    P('<b>Fairness.</b> 1920×1080 device pixels, 4× MSAA, ACES tone mapping and sRGB output on every engine; opaque canvases; production builds only. Light intensities were calibrated so screenshots match. “Naive” is what a developer following the engine’s getting-started docs writes; “optimized” is the fastest documented path for the same image, named under each chart. Only first-party packages are used: a feature that needs a third-party library counts as not applicable. three.js is measured as WebGPURenderer on WebGPU and as the classic WebGLRenderer on WebGL2.'),
     P(`<b>Browsers.</b> ${bl.map((x) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;')).join('<br>')}`),
-    P('<b>Caveats.</b> One machine: an Apple M1 Pro laptop on AC power, macOS 26.6, where Metal sits under all three WebGPU implementations. Discrete GPUs, Windows (D3D12) and Android (Vulkan) will rank differently. Safari cannot be uncapped, so its interval shows the display rate and CPU/GPU times carry the comparison. Sponza’s camera path advances a fixed step per frame, so in the same measurement window an uncapped browser sweeps far more of the fly-through than a capped one: compare its load and first-frame times across browsers, and its frame times only within a browser. Firefox 150 invalidates the device when passes carry timestamp writes, so it reports no GPU time. Engine versions are pinned; each engine’s WebGPU backend is moving fast.'),
+    P('<b>Caveats.</b> One machine: an Apple M1 Pro laptop on AC power, where Metal sits under every WebGPU implementation. Discrete GPUs, Windows (D3D12) and Android (Vulkan) will rank differently. Safari cannot be uncapped, so its interval shows the display rate and CPU and GPU times carry the comparison. Sponza’s camera path advances a fixed step per frame, so compare its frame times only within a browser. PixiJS 3D is a 0.1 release and Babylon Lite is weeks old: both are moving fast, and all versions are pinned. The use-case index reflects this report’s weights and a log-scaled score, not a universal ranking; its limits are listed above the table.'),
   );
   const f = $('#foot');
-  f.textContent = `Generated ${new Date(DATA.generatedAt).toLocaleString()} from ${DATA.browsers.map((b) => b.session).join(', ')}. Engines: ${Object.entries(DATA.engines).map(([k, v]) => `${ENG[k]?.label ?? k} ${v}`).join(' · ')}.`;
+  f.textContent = `Generated ${new Date(DATA.generatedAt).toLocaleString()} from ${DATA.browsers.map((b) => b.session).join(', ')}. Engines: ${Object.entries(DATA.engines).map(([k, v]) => `${k === 'three-classic' ? 'three.js WebGLRenderer' : ENG[k]?.label ?? k} ${v}`).join(' · ')}.`;
 }
 
 function renderRig() {
@@ -821,22 +1264,60 @@ function renderRig() {
   const items = [
     ['GPU', a ? `${a.description || a.vendor} · ${a.architecture}` : '—'],
     ['Browsers', DATA.browsers.map((b) => `${b.name} ${b.version.split('.')[0]}`).join(' · ')],
-    ['Engines', Object.entries(DATA.engines).filter(([k]) => MAIN.includes(k)).map(([k, v]) => `${ENG[k].label} ${v}`).join(' · ')],
+    ['Engines', MAIN.filter((e) => DATA.engines[e]).map((e) => `${ENG[e].label} ${DATA.engines[e].replace(/^@pixi\/3d /, '')}`).join(' · ')],
     ['Frame', '1920×1080 · MSAA 4× · ACES'],
   ];
   $('#rig').replaceChildren(...items.map(([k, v]) => h('span', {}, `${k} `, h('b', {}, v))));
+  $('#engines-line').textContent = [...MAIN].sort((a, b) => (b === 'pixi3d') - (a === 'pixi3d')).map((e) => ENG[e].label).join(' · ');
   $('#kicker').textContent = `Benchmark report · ${new Date(DATA.generatedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}`;
 }
 
 function renderFindings() {
   if (!DATA.findings?.length) return;
-  $('#findings-sec').hidden = false;
+  $('#s-findings').hidden = false;
   $('#findings').replaceChildren(...DATA.findings.map((f) => h('div', { class: 'finding' }, h('div', {}, h('h3', {}, f.title), h('p', {}, f.body)))));
 }
 
+const NAV = [['findings', 'Findings'], ['pick', 'Which engine'], ['scoreboard', 'Scoreboard'], ['features', 'Features'], null, ...GROUPS.map((g) => [g.key.toLowerCase(), g.short, `${g.key} · ${g.title}`]), null, ['browsers', 'Browsers'], ['backends', 'WebGPU vs WebGL2'], ['calls', 'GPU calls'], ['footprint', 'Footprint'], ['gallery', 'Screenshots'], ['api', 'API'], ['method', 'Method']];
+function renderNav() {
+  $('#nav').replaceChildren(...NAV.filter((n) => !n || n[0] !== 'findings' || DATA.findings?.length).map((n) => (n ? h('a', { href: `#${n[0]}`, 'data-id': n[0], title: n[2], onclick: go(n[0]) }, n[1]) : h('span', { class: 'gap' }))));
+}
+const barH = () => $('#bar').offsetHeight;
+function currentSection() {
+  let cur = '';
+  for (const sec of document.querySelectorAll('section[id^="s-"]:not([hidden])')) if (sec.getBoundingClientRect().top <= barH() + 40) cur = sec.id.slice(2);
+  return cur;
+}
+function spy() {
+  const cur = currentSection();
+  const nav = $('#nav');
+  for (const a of nav.children) a.classList?.toggle('on', a.dataset.id === cur);
+  const on = nav.querySelector('.on');
+  if (on && (on.offsetLeft < nav.scrollLeft || on.offsetLeft + on.offsetWidth > nav.scrollLeft + nav.clientWidth)) nav.scrollLeft = on.offsetLeft - nav.clientWidth / 2;
+  if (cur !== anchor) {
+    anchor = cur;
+    writeHash();
+  }
+}
+// Filters are reachable mid-page: keep the section being read where it is while everything re-renders.
+function keepPlace(fn) {
+  const id = currentSection(), top = id && document.getElementById(`s-${id}`).getBoundingClientRect().top;
+  fn();
+  const fix = () => {
+    const el = id && document.getElementById(`s-${id}`);
+    if (el) window.scrollBy(0, el.getBoundingClientRect().top - top);
+  };
+  fix();
+  requestAnimationFrame(() => requestAnimationFrame(fix));
+}
 function renderAll() {
+  keepPlace(renderEverything);
+  writeHash();
+}
+function renderEverything() {
   if (!DATA.browsers.find((b) => b.name === state.browser)?.gpuTiming && (state.metric === 'gpu' || state.metric === 'frameCost')) state.metric = 'cpu';
   renderFilters();
+  renderProfiles();
   renderBoard();
   renderGroups();
   renderBrowsers();
@@ -847,10 +1328,29 @@ function renderAll() {
 
 renderRig();
 renderFindings();
-renderAll();
+renderNav();
+renderEverything();
+renderConformance();
 renderGallery();
-renderFeatures();
+renderLoc();
 renderMethod();
+new ResizeObserver(() => document.documentElement.style.setProperty('--bar-h', `${barH()}px`)).observe($('#bar'));
+const jump = () => anchor && document.getElementById(`s-${anchor}`)?.scrollIntoView();
+requestAnimationFrame(() => requestAnimationFrame(() => {
+  jump();
+  spy();
+  let ticking = false;
+  addEventListener('scroll', () => {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => { ticking = false; spy(); });
+  }, { passive: true });
+}));
+addEventListener('hashchange', () => {
+  readHash();
+  renderEverything();
+  requestAnimationFrame(() => requestAnimationFrame(jump));
+});
 // Charts size to their container: redraw on width changes only (re-rendering changes the height).
 let rt, lastWidth = document.querySelector('.wrap').clientWidth;
 new ResizeObserver(([entry]) => {

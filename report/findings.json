@@ -1,38 +1,46 @@
 [
   {
-    "title": "Per-object scenes: PlayCanvas carries twice the load",
-    "body": "With 5,000 individually animated meshes on WebGPU, PlayCanvas spends 12 ms of CPU per frame, Babylon.js 24 ms and three.js 29 ms (Chrome). The largest such scene each engine keeps inside a 60 fps frame is about 6,300 meshes for PlayCanvas, 3,200 for Babylon.js and 2,800 for three.js. PlayCanvas leads in every browser; second place changes, and Babylon.js drops below 1,000 meshes in Safari."
+    "title": "PixiJS 3D batches ordinary meshes, and it shows everywhere",
+    "body": "PixiJS 3D draws 1,000 separately animated meshes in 130 draw calls on WebGPU (9 on WebGL2), where every other engine issues 1,000. In Chrome on WebGPU it keeps 64,000 such meshes inside a 60 fps frame, against about 10,100 for PlayCanvas, 2,800 for three.js, 2,500 for Babylon Lite and 2,200 for Babylon.js. The same design carries over to sorted transparency (30,600 meshes against 6,800 for PlayCanvas) and to a 100,000-mesh world (1.0 ms a frame). In Safari it holds about 27,500 on both backends."
   },
   {
-    "title": "Instancing makes the engine choice almost irrelevant",
-    "body": "Through each engine's own fast path (three.js InstancedMesh, PlayCanvas hardware instancing, Babylon.js thin instances), 50,000 animated meshes cost 1.1–2.3 ms of CPU on WebGPU in Chrome. That is less than any naive path spends on 5,000. Every engine sustains all 50,000 at 60 fps in every browser, so whether a scene can be instanced matters more than which engine draws it."
+    "title": "Instancing still makes the engine choice almost irrelevant",
+    "body": "Through each engine's instancing or batching path, with the hierarchy flattened by hand, all five sustain between 88,000 and 160,000 moving meshes at 60 fps in Chrome on WebGPU. That is 12 to 60 times what three.js, PlayCanvas, Babylon.js and Babylon Lite manage with one scene-graph node per object."
   },
   {
-    "title": "WebGPU isn't automatically faster",
-    "body": "On the naive per-object scene, PlayCanvas and Babylon.js ran faster on their WebGL2 backends than on WebGPU in Chrome (7.5 vs 12 ms and 19 vs 24 ms at 5,000 meshes). three.js's classic WebGLRenderer, at 7.3 ms, beat its own WebGPURenderer at 29 ms. WebGPU pays off on the instanced paths: 50,000 meshes cost 1.1–2.3 ms there versus 3.9–6.7 ms on WebGL2."
+    "title": "Spawning is where Babylon.js hurts",
+    "body": "With 20 of 2,000 meshes destroyed and recreated every frame, each with a new material and texture, Babylon.js spends 29 ms of CPU on a typical frame in Chrome and never fits the 16.7 ms budget; in Safari the same frame takes about 200 ms. PixiJS 3D takes 3.3 ms, Babylon Lite 5.7 ms, PlayCanvas 9.3 ms and three.js 12 ms. three.js's WebGPURenderer has the worst single frame apart from Babylon.js (77 ms); its classic WebGLRenderer peaks at 12 ms. No engine leaked GPU memory or built pipelines during the churn."
   },
   {
-    "title": "Forward lighting: PlayCanvas barely notices 32 lights",
-    "body": "With 32 moving point lights and no clustering, PlayCanvas renders a frame in 1.3 ms of GPU time against 53 ms for three.js (Chrome), for the same image. PlayCanvas's shader skips any light whose attenuation is zero at the pixel. Babylon.js can't run this path on WebGPU at all: each forward light takes its own uniform buffer, and the per-stage limit leaves room for 8 in Chrome (27 in Firefox). In Safari, WebKit rejects three.js's 32-light shader (private shader memory is capped at 8 KB) and nothing renders."
+    "title": "Many lights: three.js needs its clustered add-on even for 31",
+    "body": "Sponza with cascaded shadows and 31 moving point lights costs three.js 70 ms a frame on WebGPU and 56 ms on its WebGLRenderer, all of it GPU time in forward shading. PlayCanvas, Babylon.js and Babylon Lite put those lights on their clustered paths and PixiJS 3D shades them forward, and all four stay between 5 and 11 ms. With 256 lights three.js's clustered add-on is the fastest of all at 8 ms (Babylon Lite 13, Babylon.js 19, PlayCanvas 25). PixiJS 3D stops at 32 lights per view and three.js's WebGLRenderer has no clustered path, so neither can run that step."
   },
   {
-    "title": "Shadows: PlayCanvas is 2.5–4× lighter on the CPU",
-    "body": "Rendering 2,000 animated meshes with a 4-cascade sun and four shadow-casting spot lights costs PlayCanvas 21 ms of CPU per frame, three.js 52 ms and Babylon.js 78 ms on WebGPU in Chrome. GPU time differs far less (8–21 ms), so the gap is on the CPU side. Adding bloom and ACES leaves the CPU cost almost unchanged but raises GPU time, most for three.js (21 → 51 ms) and PlayCanvas (8 → 20 ms)."
+    "title": "A large world costs what exists, not what is visible, except in PixiJS 3D",
+    "body": "With about 2,000 meshes in view, growing the world from 20,000 to 100,000 meshes doubles the frame in three.js (14 to 29 ms) and Babylon.js (30 to 67 ms) and quadruples it in PlayCanvas (4.7 to 19 ms). Each has a static-world path that brings 100,000 meshes back to 5 to 9 ms, but you have to build it: BatchedMesh in three.js, hand-made instancing cells in PlayCanvas and Babylon.js. Babylon Lite does not frustum-cull ordinary meshes at all: 100,000 of them never finished a frame on the GPU and 20,000 crashed the GPU process in one of two runs, while its GPU-culled thin instances handle 100,000 in 3.3 ms."
   },
   {
-    "title": "Babylon.js pays a heavy Safari tax",
-    "body": "three.js and PlayCanvas cost about the same CPU in Safari as in Chrome. Babylon.js's per-object path does not: 5,000 meshes cost it 103 ms in Safari versus 24 ms in Chrome, and the shadow scene 226 ms versus 78 ms. Its instanced paths stay fast everywhere."
+    "title": "Crowds: only the two Babylons have a baked path",
+    "body": "With every character crossfading two clips, Babylon Lite and PixiJS 3D hold all 800 Fox characters at 60 fps, PlayCanvas 650, three.js about 610 and Babylon.js 390. For crowds beyond that, Babylon.js and Babylon Lite bake the animation into a texture and draw 3,200 characters in one instanced call, each on its own phase. three.js, PlayCanvas and PixiJS 3D have no first-party instanced or baked skinning."
   },
   {
-    "title": "Skinning and compute are a wash; Babylon.js has the only skinning fast path",
-    "body": "Five hundred walking Fox characters cost 12–14 ms of CPU in Chrome in all three engines, and a million compute-simulated particles take about 7 ms of GPU time in each. Babylon.js's baked vertex animation is the only built-in fast path that keeps each character's own animation phase, and it cuts those 500 characters to 0.1 ms of CPU."
+    "title": "Picking: the default call ranges from half a millisecond to 47",
+    "body": "Picking one of 10,000 meshes costs 0.5 ms in PixiJS 3D and 0.9 ms in three.js, 3.6 ms in Babylon Lite, 6.8 ms in Babylon.js and 18 ms in PlayCanvas, whose only picker renders an id buffer for every pick. On a single one-million-triangle mesh the order flips: PlayCanvas 0.9 ms, PixiJS 3D 7.9 ms, the Babylons about 22 ms and three.js 47 ms, since no engine ships a BVH. The GPU pickers in Babylon.js and Babylon Lite take over 100 ms among 10,000 meshes, slower than their own ray picks, and Babylon.js's reads the vertically mirrored pixel on WebGPU unless the caller flips y."
   },
   {
-    "title": "Startup: three.js is smallest, Babylon.js slowest to first frame",
-    "body": "A minimal lit-cube app ships 166 KB of brotli-compressed JavaScript with three.js, 202 KB with PlayCanvas and 279 KB with Babylon.js (104 KB with three.js's classic WebGLRenderer). In Chrome, three.js and PlayCanvas reach their first WebGPU frame in about 100 ms. Babylon.js takes 330 ms, largely because it fetches its shader code on first use."
+    "title": "A HUD is free in PixiJS 3D and expensive in PlayCanvas and Babylon.js",
+    "body": "Over the same 3D scene, PixiJS 3D keeps 9,700 moving nameplates at 60 fps in Chrome and Babylon Lite 2,100. PlayCanvas's element components reach 546 and Babylon.js's GUI 399: 500 nameplates add 13 ms and 10 ms of CPU a frame. In Safari on WebGPU, PlayCanvas already misses 60 fps at 250 nameplates. three.js handles 16,000, but it has no UI layer: that number is a hand-written quad batcher and canvas text, the largest file in its adapter."
   },
   {
-    "title": "Each browser's WebGPU has its own sharp edges",
-    "body": "Firefox 150 loses the GPU device when render passes carry timestamp writes, so it reports no GPU time here. Safari caps frames at the display rate. It also rejects shaders with large private arrays, and three.js's compileAsync never resolves there for scenes with many meshes. Chrome lets JavaScript run far ahead of the GPU when uncapped. None of this shows up in a single-browser benchmark."
+    "title": "Babylon Lite ships a tenth of Babylon.js",
+    "body": "A minimal lit-cube app is 44 KB of brotli-compressed JavaScript with Babylon Lite, 104 KB with three.js's WebGLRenderer, 172 KB with its WebGPURenderer, 217 KB with PlayCanvas, 278 KB with PixiJS 3D and 422 KB with Babylon.js, counting every chunk each build emits. With glTF, animation, shadows and bloom, Lite and three.js both land near 195 KB and Babylon.js at 864 KB. Babylon.js is also the slowest to a first frame (358 ms for the cube against 61 to 95 ms for the others)."
+  },
+  {
+    "title": "WebGPU is still not automatically faster",
+    "body": "With one node per object, three.js's classic WebGLRenderer sustains 9,000 moving meshes where its WebGPURenderer sustains 2,800, and 7,500 sorted transparent meshes against 2,400. Babylon.js is also ahead on WebGL2 (3,900 against 2,200). PlayCanvas and PixiJS 3D are about level on both. WebGPU's clear wins are the things WebGL2 cannot do at all: compute particles, clustered lighting in three.js, and Babylon Lite as a whole, which has no WebGL2 renderer."
+  },
+  {
+    "title": "Safari changes the ranking for Babylon.js, and its WebGPU has rough edges",
+    "body": "Babylon.js's per-object cost is about four times higher in Safari than in Chrome on both backends: it holds 590 moving meshes at 60 fps against 2,200, and its HUD scene is over budget before any nameplate is added. three.js, PlayCanvas and Babylon Lite land close to their Chrome numbers; PixiJS 3D drops to less than half (27,500 moving meshes) and still leads. Two Babylon.js runs also failed in Safari's WebGPU with 'Unable to begin render pass' and 'Unable to create buffer' and passed when repeated. Safari's frame interval sometimes exceeds what CPU and GPU pass times explain, so capacities there use the interval too."
   }
 ]

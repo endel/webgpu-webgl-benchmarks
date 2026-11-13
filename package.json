@@ -13,14 +13,18 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@babylonjs/core": "9.26.0",
-    "@babylonjs/loaders": "9.26.0",
-    "playcanvas": "2.22.2",
-    "three": "0.186.0"
+    "@babylonjs/core": "9.36.0",
+    "@babylonjs/gui": "9.36.0",
+    "@babylonjs/lite": "1.39.3",
+    "@babylonjs/loaders": "9.36.0",
+    "@pixi/3d": "0.1.0",
+    "pixi.js": "8.23.0",
+    "playcanvas": "2.24.1",
+    "three": "0.187.0"
   },
   "devDependencies": {
     "@types/node": "^26.5.1",
-    "@types/three": "^0.186.0",
+    "@types/three": "0.187.0",
     "@webgpu/types": "^0.1.72",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2",

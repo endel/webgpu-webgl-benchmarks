@@ -1,8 +1,8 @@
-export type EngineId = 'three' | 'playcanvas' | 'babylon' | 'three-classic';
+export type EngineId = 'three' | 'three-classic' | 'playcanvas' | 'babylon' | 'babylon-lite' | 'pixi3d';
 export type Backend = 'webgpu' | 'webgl2';
 export type Variant = 'naive' | 'optimized';
 export type Mode = 'timing' | 'counters';
-export type ScenarioId = 's0' | 's1' | 's2' | 's3' | 's4' | 's5' | 's6' | 's7' | 's8' | 's8b' | 's9';
+export type ScenarioId = 'k1' | 'k2' | 'k3' | 'k4' | 'k5' | 'k6' | 'k7' | 'k7c' | 'k8' | 'k9';
 export type RunTag = 'prime' | 'canary' | 'calibration';
 
 export type Vec3 = [number, number, number];
@@ -69,6 +69,11 @@ export interface EngineAdapter {
   frame(t: number, dt: number): void;
   /** Engine-reported stats for the last frame, used to cross-check the probe. */
   counters?(): Record<string, number>;
+  /**
+   * K8: pick the object under a point, through the engine's own picking API. Coordinates are
+   * canvas pixels, origin top-left. Returns the field slot index of the hit object, or -1.
+   */
+  pick?(x: number, y: number): number | Promise<number>;
   dispose(): Promise<void>;
 }
 
@@ -98,6 +103,8 @@ export interface PbrSpec {
   color: Vec3;
   roughness: number;
   metalness: number;
+  /** Below 1 the material is alpha-blended (no depth write) and must be sorted back to front. */
+  opacity?: number;
 }
 
 export interface SunSpec {
@@ -138,6 +145,8 @@ export interface PostSpec {
 
 interface BaseScene {
   camera: CameraSpec;
+  /** The camera's position and target are rewritten by update(t); adapters re-apply them every frame. */
+  cameraLive?: boolean;
   clearColor: Vec3;
   ambient: { color: Vec3; intensity: number };
   sun?: SunSpec;
@@ -164,6 +173,96 @@ export interface FieldScene extends BaseScene {
   post?: PostSpec;
   /** Objects/ground cast and receive shadows when the sun or spots have shadows. */
   shadows: boolean;
+  groups?: GroupsSpec;
+  churn?: ChurnSpec;
+  pick?: PickSpec;
+  hud?: HudSpec;
+}
+
+/**
+ * K2: a two-level hierarchy. Every object is a child of one group node, so its position, scale
+ * and quat are LOCAL to that group. Groups spin too, which dirties every child's world matrix.
+ * Optimized paths may flatten the hierarchy with `fieldWorldMatrices()`.
+ */
+export interface GroupsSpec {
+  count: number;
+  /** Group index per object. */
+  parent: Uint32Array;
+  /** xyz per group. */
+  position: Float32Array;
+  /** Live: xyzw per group, rewritten by update(t). */
+  quat: Float32Array;
+}
+
+/**
+ * K3: object lifecycle. Every frame the slots in `slots[0..n)` must be destroyed and recreated:
+ * dispose the slot's engine object and the material it owned, then build a new mesh from the
+ * slot's current data (geom, material, position, scale, quat were rewritten by update(t)) with a
+ * NEW material instance that samples a NEW base-color texture made from `texture.pixels`
+ * (sRGB, with mipmaps and trilinear filtering, like a loaded image).
+ * One texture is created per frame and shared by that frame's spawns. Slots are respawned in ring
+ * order, so batch `batch` is always the same set of slots: dispose the batch's previous texture
+ * when the batch comes round again. No pooling — the point is the cost of create/destroy.
+ */
+export interface ChurnSpec {
+  perFrame: number;
+  /** Live: slots to respawn this frame. */
+  slots: Uint32Array;
+  /** Live: number of valid entries in `slots` (0 on the first frame). */
+  n: number;
+  /** Live: ring index of this frame's batch, in [0, count / perFrame). */
+  batch: number;
+  /** Live: RGBA8 sRGB pixels for this frame's texture, `size`×`size`. */
+  texture: { size: number; pixels: Uint8Array };
+}
+
+/** K8: the harness calls adapter.pick() for each point after the timing phase. */
+export interface PickSpec {
+  /** Canvas pixel xy pairs, origin top-left. */
+  points: Float32Array;
+}
+
+/**
+ * K9: a 2D HUD drawn over the 3D scene, into the same canvas, through the engine's own first-party
+ * 2D stack (no DOM, no third-party UI library). All coordinates are canvas pixels (1920×1080),
+ * origin top-left, x right, y down. The HUD must not be tone-mapped or bloomed.
+ * Draw order, back to front: panels, icons, nameplates (bar background, bar fill, icon, label),
+ * dynamic text.
+ */
+export interface HudSpec {
+  /** Square cells in a grid; cell i is at column i % cols, row floor(i / cols). */
+  atlas: { canvas: HTMLCanvasElement; cols: number; rows: number; cell: number };
+  /** A TTF every engine loads through its recommended text path. */
+  font: { url: string; family: string };
+  /** Alpha-blended rectangles; color is sRGB 0..1 rgba. */
+  panels: { x: number; y: number; w: number; h: number; color: [number, number, number, number] }[];
+  /** Fixed atlas sprites, drawn `size` px square with top-left at (x, y). */
+  icons: { count: number; size: number; x: Float32Array; y: Float32Array; cell: Uint16Array };
+  /**
+   * Units that move every frame. (x, y) is the nameplate's top-centre anchor. Layout per unit:
+   * label text centred at (x, y), `fontSize` px, white; icon `iconSize` px square with top-left
+   * at (x - barWidth/2 - iconSize - 2, y + fontSize + 2); bar background `barWidth`×`barHeight`
+   * with top-left at (x - barWidth/2, y + fontSize + 2), rgba(0,0,0,0.6); bar fill on top of it,
+   * width `barWidth * health`, rgb(0.2,0.9,0.3).
+   */
+  nameplates: {
+    count: number;
+    fontSize: number;
+    iconSize: number;
+    barWidth: number;
+    barHeight: number;
+    /** Live. */
+    x: Float32Array;
+    /** Live. */
+    y: Float32Array;
+    /** Live, 0..1. */
+    health: Float32Array;
+    cell: Uint16Array;
+    /** Static strings. */
+    label: string[];
+  };
+  /** Labels whose string changes every frame; left-aligned with top-left at (x, y), white. */
+  dynamicText: { count: number; fontSize: number; x: Float32Array; y: Float32Array; /** Live. */ text: string[] };
 }
 
 /** S3: one geometry, N instances, all matrices rewritten every frame. */
@@ -176,10 +275,17 @@ export interface InstancesScene extends BaseScene {
   matrices: Float32Array;
 }
 
-/** S7: a static glTF scene with a scripted camera path (camera is live). */
+/**
+ * K4: a static glTF scene with a scripted camera path (camera is live). Features stack by level:
+ * `sun.shadow` (cascaded sun shadows on everything), `pointLights` (moving, unshadowed; 31 of them plus the sun, or 256), `post`.
+ * With `manyLights` the adapter must use its clustered / many-light path, or throw `N/A: …`.
+ */
 export interface GltfScene extends BaseScene {
   kind: 'gltf-scene';
   url: string;
+  pointLights?: PointLightsSpec;
+  manyLights?: boolean;
+  post?: PostSpec;
 }
 
 /** S8: N skinned characters playing a clip at per-character phase offsets. */
@@ -197,6 +303,11 @@ export interface CharactersScene extends BaseScene {
   yaw: Float32Array;
   /** Seconds added to t for each character's clip time. */
   phase: Float32Array;
+  /**
+   * Crossfade: each character plays `clip` at weight 1 - w and `blend.clip` at weight w, both at
+   * time t + phase (each wrapped to its own duration). Absent on the optimized variant.
+   */
+  blend?: { clip: number; /** Live: w per character, 0..1. */ weight: Float32Array };
 }
 
 /** S9: GPU particle simulation. Initial state is shared; the sim runs in each engine's compute API. */

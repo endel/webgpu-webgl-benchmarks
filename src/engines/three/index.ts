@@ -1,12 +1,8 @@
 import { WebGPURenderer, ACESFilmicToneMapping, SRGBColorSpace, Scene, PerspectiveCamera, REVISION } from 'three/webgpu';
 import type { EngineAdapter, InitOptions, InitReport, LoadReport, SceneData, Variant } from '../../harness/types';
-import { precompile, setupCommon, type Built } from './common';
-import { buildField } from './field';
-import { webgpuFeatures } from './field-webgpu';
-import { buildInstances } from './instances';
-import { buildGltf } from './gltf';
-import { buildCharacters } from './characters';
-import { buildParticles } from './particles';
+import { precompile, type Built } from './common';
+import { webgpuFeatures } from './features';
+import { buildScene } from './scene';
 
 export interface ThreeCtx {
   renderer: WebGPURenderer;
@@ -50,24 +46,8 @@ class ThreeAdapter implements EngineAdapter {
   async load(data: SceneData, variant: Variant, opt?: string): Promise<LoadReport> {
     const ctx = this.ctx;
     const { scene, camera, renderer } = ctx;
-    const { sun } = setupCommon(scene, camera, data, renderer.domElement.width / renderer.domElement.height);
-    switch (data.kind) {
-      case 'field':
-        this.built = buildField(ctx, sun, data, variant, opt, webgpuFeatures(ctx));
-        break;
-      case 'instances':
-        this.built = buildInstances(ctx, data);
-        break;
-      case 'gltf-scene':
-        this.built = await buildGltf(ctx, data);
-        break;
-      case 'characters':
-        this.built = await buildCharacters(ctx, data, variant);
-        break;
-      case 'particles':
-        this.built = await buildParticles(ctx, data);
-        break;
-    }
+    camera.aspect = renderer.domElement.width / renderer.domElement.height;
+    this.built = await buildScene(ctx, data, variant, opt, webgpuFeatures(ctx));
     const compileNotes = await precompile(renderer, scene, camera);
     return { path: this.built.path, notes: [...(this.built.notes ?? []), ...compileNotes] };
   }
@@ -78,6 +58,10 @@ class ThreeAdapter implements EngineAdapter {
     this.built.update(t, dt);
     if (this.built.render) this.built.render();
     else renderer.render(scene, camera);
+  }
+
+  pick(x: number, y: number) {
+    return this.built.pick ? this.built.pick(x, y) : -1;
   }
 
   counters() {

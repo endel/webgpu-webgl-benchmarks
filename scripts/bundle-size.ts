@@ -1,14 +1,14 @@
-// Shipped-size comparison: builds each engine's minimal lit-cube entry (tree-shaken, minified)
-// plus the full benchmark adapters, and counts lines of code per scenario file.
+// Shipped-size comparison: builds each engine's minimal lit-cube entry and its "realistic" entry
+// (glTF + animation + shadows + bloom), tree-shaken and minified, plus the full benchmark adapters, and counts lines of code per scenario file.
 //   npm run bundle-size   → results/bundle-size.json
-import { build } from 'vite';
+import { build, defaultClientConditions } from 'vite';
 import { gzipSync, brotliCompressSync, constants } from 'node:zlib';
 import { readFileSync, readdirSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
 const ROOT = join(import.meta.dirname, '..');
 const OUT = join(ROOT, 'dist-size');
-const ENGINES = ['three', 'playcanvas', 'babylon', 'three-classic'];
+const ENGINES = ['three', 'three-classic', 'playcanvas', 'babylon', 'babylon-lite', 'pixi3d'];
 
 interface Size { raw: number; gzip: number; brotli: number; files: number }
 type Manifest = Record<string, { file: string; isEntry?: boolean; isDynamicEntry?: boolean; imports?: string[]; dynamicImports?: string[]; src?: string }>;
@@ -53,6 +53,7 @@ async function buildEntry(name: string, input: string) {
     root: ROOT,
     configFile: false,
     logLevel: 'warn',
+    resolve: { conditions: [...defaultClientConditions, 'babylon-lite-rh'] },
     build: { outDir, emptyOutDir: true, target: 'es2022', manifest: true, modulePreload: false, assetsDir: '.', rolldownOptions: { input } },
   });
   return { outDir, manifest: JSON.parse(readFileSync(join(outDir, '.vite', 'manifest.json'), 'utf8')) as Manifest };
@@ -79,16 +80,22 @@ function loc(file: string) {
 mkdirSync(OUT, { recursive: true });
 const result: Record<string, unknown> = { measuredAt: new Date().toISOString() };
 
-const minimal: Record<string, unknown> = {};
-for (const engine of ENGINES) {
-  const input = join(ROOT, 'src', 'minimal', `${engine}.ts`);
-  if (!existsSync(input)) continue;
-  const { outDir, manifest } = await buildEntry(`minimal-${engine}`, input);
-  const key = Object.keys(manifest).find((k) => manifest[k].isEntry)!;
-  minimal[engine] = measure(outDir, manifest, key);
-  console.log(`minimal ${engine}:`, JSON.stringify((minimal[engine] as any).initial));
+for (const kind of ['minimal', 'realistic']) {
+  const sizes: Record<string, unknown> = {};
+  for (const engine of ENGINES) {
+    const input = join(ROOT, 'src', kind, `${engine}.ts`);
+    if (!existsSync(input)) continue;
+    try {
+      const { outDir, manifest } = await buildEntry(`${kind}-${engine}`, input);
+      const key = Object.keys(manifest).find((k) => manifest[k].isEntry)!;
+      sizes[engine] = measure(outDir, manifest, key);
+      console.log(`${kind} ${engine}:`, JSON.stringify((sizes[engine] as any).total));
+    } catch (e) {
+      console.log(`${kind} ${engine}: build failed — ${String(e).split('\n')[0]}`);
+    }
+  }
+  result[kind] = sizes;
 }
-result.minimal = minimal;
 
 // Full adapters: each engine's dynamic entry from the bench page, minus chunks shared with the harness.
 {

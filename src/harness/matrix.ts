@@ -4,43 +4,55 @@ import type { Backend, EngineId, ScenarioId, Variant } from './types';
 
 export interface ScenarioDef {
   id: ScenarioId;
+  /** Key test this scenario belongs to (K7 has two scenarios). */
+  key: string;
   title: string;
   levels: number[];
   levelLabel: string;
   variants: Variant[];
   backends: Backend[];
-  engines: EngineId[];
-  /** Workload group, for the report. */
-  group: 'startup' | 'cpu' | 'gpu' | 'assets' | 'compute';
-  /** Highest level per variant, where one path saturates the GPU long before the other. */
-  maxLevel?: Partial<Record<Variant, number>>;
+  /** Ladder per variant, where the optimized path's capacity is far above the naive one's. */
+  levelsFor?: Partial<Record<Variant, number[]>>;
+  /**
+   * Capacity ladder: levels climb until the frame cost passes the 60 fps budget, and the report
+   * interpolates the largest level that fits. Other scenarios run every level.
+   */
+  capacity?: boolean;
+  /** Overrides of the profile's timing window (K3 needs many churn cycles). */
+  run?: { measureFrames?: number; measureMs?: number; maxMeasureMs?: number };
 }
 
-const MAIN: EngineId[] = ['three', 'playcanvas', 'babylon'];
-const WITH_CLASSIC: EngineId[] = [...MAIN, 'three-classic'];
 const BOTH: Backend[] = ['webgpu', 'webgl2'];
+const x2 = (from: number, steps: number) => Array.from({ length: steps }, (_, i) => from * 2 ** i);
 
-// Top levels that saturate the GPU for seconds per frame (forward lighting past 32 lights,
-// 4M particles, 200 BrainStems, 1M instances) are left out: they freeze the desktop mid-run.
+export const ENGINES: EngineId[] = ['three', 'three-classic', 'playcanvas', 'babylon', 'babylon-lite', 'pixi3d'];
+
 export const SCENARIOS: ScenarioDef[] = [
-  { id: 's0', title: 'Startup: minimal lit cube', levels: [1], levelLabel: 'objects', variants: ['naive'], backends: BOTH, engines: WITH_CLASSIC, group: 'startup' },
-  { id: 's1', title: 'Draw calls: unique animated meshes', levels: [1000, 2000, 5000, 10000, 20000, 50000], levelLabel: 'meshes', variants: ['naive', 'optimized'], backends: BOTH, engines: WITH_CLASSIC, group: 'cpu' },
-  { id: 's2', title: 'Material variety (5k meshes)', levels: [10, 100, 1000], levelLabel: 'materials', variants: ['naive'], backends: BOTH, engines: WITH_CLASSIC, group: 'cpu' },
-  { id: 's3', title: 'Instancing with per-frame updates', levels: [10000, 100000, 500000], levelLabel: 'instances', variants: ['optimized'], backends: BOTH, engines: WITH_CLASSIC, group: 'gpu' },
-  { id: 's4', title: 'PBR + dynamic point lights', levels: [8, 32, 128, 512], maxLevel: { naive: 32 }, levelLabel: 'lights', variants: ['naive', 'optimized'], backends: BOTH, engines: WITH_CLASSIC, group: 'gpu' },
-  { id: 's5', title: 'Shadows: CSM + 4 spot shadows', levels: [2000], levelLabel: 'meshes', variants: ['naive'], backends: BOTH, engines: WITH_CLASSIC, group: 'gpu' },
-  { id: 's6', title: 'Post-processing: bloom + ACES', levels: [2000], levelLabel: 'meshes', variants: ['naive'], backends: BOTH, engines: MAIN, group: 'gpu' },
-  { id: 's7', title: 'Sponza: load + flythrough', levels: [1], levelLabel: 'scene', variants: ['naive'], backends: BOTH, engines: WITH_CLASSIC, group: 'assets' },
-  { id: 's8', title: 'Skinned characters (Fox)', levels: [10, 50, 200, 500], levelLabel: 'characters', variants: ['naive', 'optimized'], backends: BOTH, engines: WITH_CLASSIC, group: 'assets' },
-  { id: 's8b', title: 'Skinned characters (BrainStem)', levels: [10, 50], levelLabel: 'characters', variants: ['naive'], backends: BOTH, engines: WITH_CLASSIC, group: 'assets' },
-  { id: 's9', title: 'Compute: GPU particles', levels: [100000, 1000000], levelLabel: 'particles', variants: ['naive'], backends: ['webgpu'], engines: MAIN, group: 'compute' },
+  { id: 'k1', key: 'K1', title: 'Startup: minimal lit cube', levels: [1], levelLabel: 'objects', variants: ['naive'], backends: BOTH },
+  { id: 'k2', key: 'K2', title: 'Dynamic objects in a hierarchy', levels: x2(500, 8), levelsFor: { optimized: x2(4000, 7) }, levelLabel: 'meshes', variants: ['naive', 'optimized'], backends: BOTH, capacity: true },
+  { id: 'k3', key: 'K3', title: 'Lifecycle churn: 1,200 spawns/s', levels: [2000], levelLabel: 'live meshes', variants: ['naive'], backends: BOTH, run: { measureFrames: 600, measureMs: 10000, maxMeasureMs: 20000 } },
+  { id: 'k4', key: 'K4', title: 'Lit game frame (Sponza)', levels: [0, 1, 2, 3, 4], levelLabel: 'feature step', variants: ['naive'], backends: BOTH },
+  { id: 'k5', key: 'K5', title: 'Large world, ~2k visible', levels: [20000, 100000], levelLabel: 'world meshes', variants: ['naive', 'optimized'], backends: BOTH },
+  { id: 'k6', key: 'K6', title: 'Skinned characters (Fox, crossfade)', levels: x2(25, 6), levelsFor: { optimized: x2(200, 5) }, levelLabel: 'characters', variants: ['naive', 'optimized'], backends: BOTH, capacity: true },
+  { id: 'k7', key: 'K7', title: 'Sorted transparency', levels: x2(500, 8), levelLabel: 'meshes', variants: ['naive'], backends: BOTH, capacity: true },
+  { id: 'k7c', key: 'K7', title: 'Compute particles', levels: [1000000], levelLabel: 'particles', variants: ['naive'], backends: ['webgpu'] },
+  { id: 'k8', key: 'K8', title: 'Picking', levels: [1, 10000], levelLabel: 'meshes', variants: ['naive', 'optimized'], backends: BOTH },
+  { id: 'k9', key: 'K9', title: 'HUD over 3D', levels: [0, ...x2(250, 7)], levelLabel: 'nameplates', variants: ['naive'], backends: BOTH, capacity: true },
 ];
+
+/** K4 feature steps, by level. */
+export const K4_STEPS = ['base', '+ cascaded shadows', '+ 31 point lights', '+ bloom', '256 lights + shadows + bloom'];
 
 export const scenarioById = (id: string) => SCENARIOS.find((s) => s.id === id);
 
-/** three-classic is the classic WebGLRenderer: it only exists on the WebGL2 backend. */
+/**
+ * three.js is measured as WebGPURenderer on WebGPU and the classic WebGLRenderer on WebGL2 (what
+ * three.js apps ship). Babylon Lite has no WebGL2 renderer.
+ */
 export function engineSupports(engine: EngineId, backend: Backend) {
-  return engine === 'three-classic' ? backend === 'webgl2' : true;
+  if (engine === 'three-classic') return backend === 'webgl2';
+  if (engine === 'three' || engine === 'babylon-lite') return backend === 'webgpu';
+  return true;
 }
 
 export interface Cell {
@@ -60,15 +72,13 @@ export function allCells(filter?: Partial<Record<keyof Cell, string[]>>): Cell[]
   const ok = (k: keyof Cell, v: string | number) => !filter?.[k] || filter[k]!.includes(String(v));
   for (const s of SCENARIOS) {
     if (!ok('scenario', s.id)) continue;
-    for (const level of s.levels) {
-      if (!ok('level', level)) continue;
-      for (const variant of s.variants) {
-        if (!ok('variant', variant)) continue;
-        const cap = s.maxLevel?.[variant];
-        if (cap !== undefined && level > cap) continue;
+    for (const variant of s.variants) {
+      if (!ok('variant', variant)) continue;
+      for (const level of s.levelsFor?.[variant] ?? s.levels) {
+        if (!ok('level', level)) continue;
         for (const backend of s.backends) {
           if (!ok('backend', backend)) continue;
-          for (const engine of s.engines) {
+          for (const engine of ENGINES) {
             if (!ok('engine', engine) || !engineSupports(engine, backend)) continue;
             out.push({ engine, backend, scenario: s.id, variant, level });
           }

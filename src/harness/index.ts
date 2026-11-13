@@ -1,4 +1,4 @@
-import { SCENARIOS, engineSupports } from './matrix';
+import { ENGINES, SCENARIOS, engineSupports } from './matrix';
 import { toSearch } from './params';
 
 // Landing page. With ?session= (set by the runner) it hands off to the first queued run;
@@ -24,10 +24,10 @@ if (session) {
         row.insertCell().textContent = `${s.id} ${s.title}`;
         row.insertCell().textContent = `${variant} / ${backend}`;
         const cell = row.insertCell();
-        for (const engine of s.engines) {
+        for (const engine of ENGINES) {
           if (!engineSupports(engine, backend)) continue;
           const a = document.createElement('a');
-          a.href = `bench.html?${toSearch({ engine, backend, scenario: s.id, variant, level: s.levels[0], standalone: true })}`;
+          a.href = `bench.html?${toSearch({ engine, backend, scenario: s.id, variant, level: (s.levelsFor?.[variant] ?? s.levels)[s.id === 'k4' ? 3 : s.id === 'k9' ? 3 : 0], standalone: true })}`;
           a.textContent = engine;
           cell.append(a, ' ');
         }

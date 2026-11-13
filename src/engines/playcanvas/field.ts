@@ -1,10 +1,13 @@
 import * as pc from 'playcanvas';
+import { fieldWorldMatrices } from '../../harness/scenes';
 import type { FieldScene, Geometry, PbrSpec, PointLightsSpec, PostSpec, SpotSpec, Variant, Vec3 } from '../../harness/types';
+import { buildHud } from './hud';
 import { color, downTo, lightColor, LIGHT_SCALE, PUNCTUAL_SCALE, SHADOW_BIAS, type Built, type PcCtx } from './index';
 
-const DEFAULT_OPT = 'instanced';
 // PlayCanvas bloom adds an unthresholded sum of blur levels, so the spec's thresholded strength is scaled down.
 const BLOOM_SCALE = 0.02;
+/** K5 optimized: edge of the square cells that instances are grouped (and culled) by, metres. */
+const CELL = 30;
 
 export function toMesh(device: pc.GraphicsDevice, g: Geometry) {
   const m = new pc.Mesh(device);
@@ -16,74 +19,117 @@ export function toMesh(device: pc.GraphicsDevice, g: Geometry) {
   return m;
 }
 
-export function toMaterial(m: PbrSpec) {
+export function toMaterial(m: PbrSpec, map?: pc.Texture) {
   const mat = new pc.StandardMaterial();
   mat.diffuse = color(m.color);
+  if (map) mat.diffuseMap = map;
   mat.useMetalness = true;
   mat.metalness = m.metalness;
   mat.gloss = 1 - m.roughness;
+  if (m.opacity !== undefined && m.opacity < 1) {
+    mat.opacity = m.opacity;
+    mat.blendType = pc.BLEND_NORMAL; // the world layer sorts blended draws back to front
+    mat.depthWrite = false;
+  }
   mat.update();
   return mat;
 }
 
 interface Objects {
   path: string;
+  notes?: string[];
   update(): void;
+  pick?(x: number, y: number): Promise<number>;
 }
 type ObjectPath = (ctx: PcCtx, d: FieldScene, meshes: pc.Mesh[], mats: pc.Material[]) => Objects;
 
-function addEntities({ app }: PcCtx, d: FieldScene, meshes: pc.Mesh[], mats: pc.Material[], batchGroupId = -1) {
-  const entities: pc.Entity[] = new Array(d.count);
-  for (let i = 0; i < d.count; i++) {
+const entities: ObjectPath = ({ app, device, camera }, d, meshes, mats) => {
+  const g = d.groups;
+  const groups: pc.Entity[] = [];
+  if (g) {
+    for (let k = 0; k < g.count; k++) {
+      const e = new pc.Entity();
+      e.setLocalPosition(g.position[k * 3], g.position[k * 3 + 1], g.position[k * 3 + 2]);
+      e.setLocalRotation(g.quat[k * 4], g.quat[k * 4 + 1], g.quat[k * 4 + 2], g.quat[k * 4 + 3]);
+      app.root.addChild(e);
+      groups.push(e);
+    }
+  }
+  const spawn = (i: number, material: pc.Material) => {
     const e = new pc.Entity();
     e.addComponent('render', {
-      meshInstances: [new pc.MeshInstance(meshes[d.geom[i]], mats[d.material[i]])],
+      meshInstances: [new pc.MeshInstance(meshes[d.geom[i]], material)],
       castShadows: d.shadows,
       receiveShadows: d.shadows,
-      batchGroupId,
     });
     e.setLocalPosition(d.position[i * 3], d.position[i * 3 + 1], d.position[i * 3 + 2]);
     e.setLocalScale(d.scale[i], d.scale[i], d.scale[i]);
     e.setLocalRotation(d.quat[i * 4], d.quat[i * 4 + 1], d.quat[i * 4 + 2], d.quat[i * 4 + 3]);
-    app.root.addChild(e);
-    entities[i] = e;
-  }
-  const q = d.quat;
-  return () => {
-    if (!d.animated) return;
-    for (let i = 0; i < entities.length; i++) entities[i].setLocalRotation(q[i * 4], q[i * 4 + 1], q[i * 4 + 2], q[i * 4 + 3]);
+    (g ? groups[g.parent[i]] : app.root).addChild(e);
+    return e;
   };
-}
+  const list: pc.Entity[] = new Array(d.count);
+  for (let i = 0; i < d.count; i++) list[i] = spawn(i, mats[d.material[i]]);
 
-/** Column-major TRS (uniform scale) of object i into out[o..o+15] — the Mat4.data layout. */
-function compose(out: Float32Array, o: number, i: number, p: Float32Array, s: Float32Array, q: Float32Array) {
-  const x = q[i * 4], y = q[i * 4 + 1], z = q[i * 4 + 2], w = q[i * 4 + 3], sc = s[i];
-  const x2 = x + x, y2 = y + y, z2 = z + z;
-  const xx = x * x2, xy = x * y2, xz = x * z2, yy = y * y2, yz = y * z2, zz = z * z2;
-  const wx = w * x2, wy = w * y2, wz = w * z2;
-  out[o] = (1 - (yy + zz)) * sc;
-  out[o + 1] = (xy + wz) * sc;
-  out[o + 2] = (xz - wy) * sc;
-  out[o + 3] = 0;
-  out[o + 4] = (xy - wz) * sc;
-  out[o + 5] = (1 - (xx + zz)) * sc;
-  out[o + 6] = (yz + wx) * sc;
-  out[o + 7] = 0;
-  out[o + 8] = (xz + wy) * sc;
-  out[o + 9] = (yz - wx) * sc;
-  out[o + 10] = (1 - (xx + yy)) * sc;
-  out[o + 11] = 0;
-  out[o + 12] = p[i * 3];
-  out[o + 13] = p[i * 3 + 1];
-  out[o + 14] = p[i * 3 + 2];
-  out[o + 15] = 1;
-}
+  const notes: string[] = [];
+  let path = g ? 'Entity + render component per object, parented to one Entity per group' : 'Entity + render component per object';
+  let churn: (() => void) | undefined;
+  const c = d.churn;
+  if (c) {
+    for (const m of meshes) m.incRefCount(); // destroying a geometry's last MeshInstance would free the shared mesh
+    const owned: (pc.Material | undefined)[] = new Array(d.count);
+    const textures: (pc.Texture | undefined)[] = [];
+    path += '; Entity.destroy + Material.destroy + Texture.destroy, then new Texture/StandardMaterial/Entity';
+    notes.push('churn textures: sRGB, mipmaps generated, trilinear (the Texture defaults)');
+    churn = () => {
+      if (!c.n) return;
+      const old = textures[c.batch];
+      const { size, pixels } = c.texture;
+      // uploaded by this frame's render, before update(t) rewrites the pixels
+      const tex = (textures[c.batch] = new pc.Texture(device, { width: size, height: size, format: pc.PIXELFORMAT_SRGBA8, levels: [pixels] }));
+      for (let k = 0; k < c.n; k++) {
+        const slot = c.slots[k];
+        list[slot].destroy();
+        owned[slot]?.destroy();
+        list[slot] = spawn(slot, (owned[slot] = toMaterial(d.materials[d.material[slot]], tex)));
+      }
+      old?.destroy();
+    };
+  }
 
-const instanced: ObjectPath = ({ app, device }, d, meshes, mats) => {
-  const nm = mats.length;
+  let pick: Objects['pick'];
+  if (d.pick) {
+    const slots = new Map<pc.MeshInstance, number>();
+    list.forEach((e, i) => slots.set(e.render!.meshInstances[0], i));
+    const picker = new pc.Picker(app, device.width, device.height);
+    path += '; Picker (GPU id buffer at canvas resolution, prepare + getSelectionAsync per pick)';
+    pick = async (x, y) => {
+      picker.prepare(camera.camera!, app.scene);
+      const hit = await picker.getSelectionAsync(x, y);
+      return hit.length ? slots.get(hit[0] as pc.MeshInstance) ?? -1 : -1;
+    };
+  }
+
+  const q = d.quat;
+  return {
+    path,
+    notes,
+    pick,
+    update() {
+      churn?.();
+      if (!d.animated) return;
+      for (let i = 0; i < list.length; i++) list[i].setLocalRotation(q[i * 4], q[i * 4 + 1], q[i * 4 + 2], q[i * 4 + 3]);
+      if (g) for (let k = 0; k < groups.length; k++) groups[k].setLocalRotation(g.quat[k * 4], g.quat[k * 4 + 1], g.quat[k * 4 + 2], g.quat[k * 4 + 3]);
+    },
+  };
+};
+
+/** One instanced MeshInstance per key; `world` holds every object's matrix, `write` regathers them. */
+function instanceBuckets({ app, device }: PcCtx, d: FieldScene, meshes: pc.Mesh[], mats: pc.Material[], world: Float32Array, usage: number, cell?: (i: number) => number) {
+  const nm = mats.length, ng = meshes.length;
   const buckets = new Map<number, number[]>();
   for (let i = 0; i < d.count; i++) {
-    const k = d.geom[i] * nm + d.material[i];
+    const k = ((cell ? cell(i) : 0) * ng + d.geom[i]) * nm + d.material[i];
     let ids = buckets.get(k);
     if (!ids) buckets.set(k, (ids = []));
     ids.push(i);
@@ -91,41 +137,74 @@ const instanced: ObjectPath = ({ app, device }, d, meshes, mats) => {
   const format = pc.VertexFormat.getDefaultInstancingFormat(device);
   const groups = [...buckets].map(([k, ids]) => {
     const data = new Float32Array(ids.length * 16);
-    const vb = new pc.VertexBuffer(device, format, ids.length, { usage: pc.BUFFER_DYNAMIC, data });
-    const mi = new pc.MeshInstance(meshes[Math.floor(k / nm)], mats[k % nm]);
-    mi.setInstancing(vb);
+    const vb = new pc.VertexBuffer(device, format, ids.length, { usage, data });
+    const mi = new pc.MeshInstance(meshes[Math.floor(k / nm) % ng], mats[k % nm]);
+    mi.setInstancing(vb, !!cell);
     const e = new pc.Entity();
     e.addComponent('render', { meshInstances: [mi], castShadows: d.shadows, receiveShadows: d.shadows });
     app.root.addChild(e);
-    return { ids, data, vb };
+    return { ids, data, vb, e };
   });
   const write = () => {
     for (const { ids, data, vb } of groups) {
-      for (let j = 0; j < ids.length; j++) compose(data, j * 16, ids[j], d.position, d.scale, d.quat);
+      for (let j = 0; j < ids.length; j++) {
+        const s = ids[j] * 16, o = j * 16;
+        for (let m = 0; m < 16; m++) data[o + m] = world[s + m];
+      }
       vb.setData(data);
     }
   };
   write();
+  return { groups, write };
+}
+
+const instanced: ObjectPath = (ctx, d, meshes, mats) => {
+  const world = new Float32Array(d.count * 16);
+  fieldWorldMatrices(d, world);
+  const { write } = instanceBuckets(ctx, d, meshes, mats, world, pc.BUFFER_DYNAMIC);
   return {
-    path: 'hardware instancing per geometry (matrices uploaded per frame)',
+    path: `hardware instancing per geometry × material${d.groups ? ', hierarchy flattened on the CPU' : ''} (matrices uploaded per frame)`,
     update() {
-      if (d.animated) write();
+      if (!d.animated) return;
+      fieldWorldMatrices(d, world);
+      write();
     },
   };
 };
 
-const PATHS: Record<string, ObjectPath> = {
-  entity: (ctx, d, meshes, mats) => ({ path: 'Entity + render component per object', update: addEntities(ctx, d, meshes, mats) }),
-  batch: (ctx, d, meshes, mats) => {
-    const group = ctx.app.batcher.addGroup('field', true, Number.POSITIVE_INFINITY);
-    const update = addEntities(ctx, d, meshes, mats, group.id);
-    ctx.app.batcher.generate();
-    return { path: 'dynamic BatchManager group (≤1024 objects per draw)', update };
-  },
-  instanced,
+/** Static world: instancing has no per-instance culling, so instances are split into cells that are culled whole. */
+const cells: ObjectPath = (ctx, d, meshes, mats) => {
+  const world = new Float32Array(d.count * 16);
+  fieldWorldMatrices(d, world);
+  const p = d.position;
+  const cell = (i: number) => (Math.floor(p[i * 3] / CELL) + 512) * 1024 + Math.floor(p[i * 3 + 2] / CELL) + 512;
+  const { groups } = instanceBuckets(ctx, d, meshes, mats, world, pc.BUFFER_STATIC, cell);
+  const radius = d.geometries.map((g) => {
+    let r = 0;
+    for (let v = 0; v < g.positions.length; v += 3) r = Math.max(r, Math.hypot(g.positions[v], g.positions[v + 1], g.positions[v + 2]));
+    return r;
+  });
+  for (const { ids, e } of groups) {
+    const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+    for (const i of ids) {
+      const r = radius[d.geom[i]] * d.scale[i];
+      for (let a = 0; a < 3; a++) {
+        min[a] = Math.min(min[a], p[i * 3 + a] - r);
+        max[a] = Math.max(max[a], p[i * 3 + a] + r);
+      }
+    }
+    const box = new pc.BoundingBox();
+    box.setMinMax(new pc.Vec3(min), new pc.Vec3(max));
+    e.render!.customAabb = box; // what the culled instancing draw is tested against
+  }
+  return {
+    path: `hardware instancing per ${CELL} m cell × geometry × material, static buffers, frustum-culled per cell (setInstancing cull + customAabb)`,
+    notes: [`${groups.length} instanced draws for ${d.count} objects`],
+    update() {},
+  };
 };
 
-function addPointLights(app: pc.AppBase, l: PointLightsSpec, clustered: boolean, notes: string[]) {
+export function addPointLights(app: pc.AppBase, l: PointLightsSpec, clustered: boolean, notes: string[]) {
   app.scene.clusteredLightingEnabled = clustered;
   if (clustered) {
     app.scene.lighting.maxLights = Math.max(app.scene.lighting.maxLights, l.count); // default 255 drops the rest
@@ -177,7 +256,7 @@ function addSpots(app: pc.AppBase, spots: SpotSpec[]) {
   }
 }
 
-function addPost({ app, camera }: PcCtx, p: PostSpec, clear: Vec3, notes: string[]) {
+export function addPost({ app, camera }: PcCtx, p: PostSpec, clear: Vec3, notes: string[]) {
   const cam = camera.camera!;
   cam.clearColor = new pc.Color(clear[0], clear[1], clear[2]); // the clear value lands raw in the linear HDR target
   const frame = new pc.CameraFrame(app, cam);
@@ -189,17 +268,19 @@ function addPost({ app, camera }: PcCtx, p: PostSpec, clear: Vec3, notes: string
   notes.push(`CameraFrame: 4× MSAA HDR target, bloom intensity ${frame.bloom.intensity} (no threshold in PlayCanvas), blurLevel ${frame.bloom.blurLevel}, ACES2; no FXAA`);
 }
 
-export function buildField(ctx: PcCtx, d: FieldScene, variant: Variant, opt?: string): Built {
+export async function buildField(ctx: PcCtx, d: FieldScene, variant: Variant, opt?: string): Promise<Built> {
   const { app, device } = ctx;
   const notes: string[] = [];
+  let make = entities;
+  if (variant === 'optimized') {
+    if (d.pick) throw new Error('N/A: the GPU Picker is the only first-party picker in PlayCanvas (measured as naive); there is no CPU ray-mesh pick without a physics add-on');
+    make = d.animated ? instanced : cells;
+  }
   const meshes = d.geometries.map((g) => toMesh(device, g));
-  const mats = d.materials.map(toMaterial);
-  // S4's optimized variant is its lighting path; elsewhere `optimized` picks an object path.
-  const name = variant === 'optimized' && !d.pointLights ? opt ?? DEFAULT_OPT : 'entity';
-  const make = PATHS[name];
-  if (!make) throw new Error(`playcanvas field: unknown optimized path "${name}" (${Object.keys(PATHS).join(', ')})`);
+  const mats = d.materials.map((m) => toMaterial(m));
   const objects = make(ctx, d, meshes, mats);
   let path = objects.path;
+  notes.push(...(objects.notes ?? []));
 
   if (d.ground) {
     const g = new pc.Entity('ground');
@@ -209,19 +290,31 @@ export function buildField(ctx: PcCtx, d: FieldScene, variant: Variant, opt?: st
   }
   let updateLights: (() => void) | undefined;
   if (d.pointLights) {
-    const clustered = variant === 'optimized';
-    updateLights = addPointLights(app, d.pointLights, clustered, notes);
-    path += clustered ? ', clustered lighting' : ', forward lighting';
+    updateLights = addPointLights(app, d.pointLights, true, notes);
+    path += ', clustered lighting';
   }
   if (d.spots) addSpots(app, d.spots);
   if (d.post) addPost(ctx, d.post, d.clearColor, notes);
+  let updateHud: (() => void) | undefined;
+  if (d.hud) {
+    const hud = await buildHud(ctx, d.hud);
+    updateHud = hud.update;
+    path += `; ${hud.path}`;
+  }
+  const c = d.camera; // rewritten by scene.update(t) when live
 
   return {
     path,
     notes,
+    pick: objects.pick,
     update() {
+      if (d.cameraLive) {
+        ctx.camera.setPosition(...c.position);
+        ctx.camera.lookAt(...c.target);
+      }
       objects.update();
       updateLights?.();
+      updateHud?.();
     },
   };
 }

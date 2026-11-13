@@ -3,7 +3,7 @@ import { installWebGPUProbe } from './probe-webgpu';
 import { installWebGLProbe } from './probe-webgl';
 import { parseParams } from './params';
 import { buildScene, needsAssets, WIDTH, HEIGHT, type AssetManifest } from './scenes';
-import { summarize, stutterCount, median, round3 } from './stats';
+import { summarize, stutterCount, longFrames, median, round3 } from './stats';
 import type { EngineAdapter, EngineId, FrameCounters, SceneData } from './types';
 
 const params = parseParams(location.search);
@@ -28,6 +28,8 @@ const ENGINES: Record<EngineId, () => Promise<{ createAdapter(): EngineAdapter }
   'three-classic': () => import('../engines/three-classic/index'),
   playcanvas: () => import('../engines/playcanvas/index'),
   babylon: () => import('../engines/babylon/index'),
+  'babylon-lite': () => import('../engines/babylon-lite/index'),
+  pixi3d: () => import('../engines/pixi3d/index'),
 };
 
 const consoleErrors: string[] = [];
@@ -132,7 +134,7 @@ async function main() {
 
   let assets: AssetManifest | null = null;
   if (needsAssets(params.scenario)) assets = await (await fetch('assets/manifest.json')).json();
-  const scene: SceneData = buildScene(params.scenario, params.level, assets);
+  const scene: SceneData = buildScene(params.scenario, params.level, assets, params.variant);
   marks.built = performance.now();
 
   status('load…');
@@ -219,6 +221,7 @@ async function main() {
   });
   marks.warm = performance.now();
   const pipelinesBefore = pipelinesCreated();
+  const memBefore = memorySnapshot();
 
   status('measuring…');
   const recs = await loop(
@@ -230,6 +233,25 @@ async function main() {
   );
   marks.measured = performance.now();
   const pipelinesDuringMeasure = pipelinesCreated() - pipelinesBefore;
+  const memAfter = memorySnapshot();
+
+  // K8: picks run after the timing phase, one at a time, so GPU pickers can read back.
+  let pick: { ms: ReturnType<typeof summarize>; hits: number; ids: number[] } | null = null;
+  if (scene.kind === 'field' && scene.pick) {
+    if (!adapter.pick) throw new Error('N/A: adapter has no pick()');
+    status('picking…');
+    const pts = scene.pick.points;
+    const ms: number[] = [], ids: number[] = [];
+    for (let rep = 0; rep < 3; rep++) {
+      for (let k = 0; k < pts.length / 2; k++) {
+        const t0 = performance.now();
+        const id = await adapter.pick(pts[k * 2], pts[k * 2 + 1]);
+        ms.push(performance.now() - t0);
+        if (rep === 0) ids.push(id);
+      }
+    }
+    pick = { ms: summarize(ms), hits: ids.filter((i) => i >= 0).length, ids };
+  }
 
   status('collecting…');
   // Late timestamp readbacks are dropped rather than waited on indefinitely.
@@ -297,7 +319,10 @@ async function main() {
       gpuPasses: summarize(gpuPasses),
       gpuCoverage: round3(gpuSpan.length / recs.length),
       stutter: stutterCount(intervals),
+      /** Frames over the 60 and 30 fps budgets. Interval only means something where the browser is uncapped. */
+      long: { interval: longFrames(intervals), cpu: longFrames(recs.map((r) => r.cpu)) },
     },
+    pick,
     raw: {
       interval: intervals.map(round3),
       cpu: recs.map((r) => round3(r.cpu)),
@@ -307,7 +332,7 @@ async function main() {
       }),
     },
     counters,
-    memory: { jsHeapUsed: mem?.usedJSHeapSize ?? null, jsHeapTotal: mem?.totalJSHeapSize ?? null },
+    memory: { jsHeapUsed: mem?.usedJSHeapSize ?? null, jsHeapTotal: mem?.totalJSHeapSize ?? null, before: memBefore, after: memAfter },
     pipelinesDuringMeasure,
     consoleErrors,
     consoleWarnings,
@@ -315,6 +340,19 @@ async function main() {
   status(`done: interval p50 ${result.frames.interval?.p50}ms cpu p50 ${result.frames.cpu?.p50}ms gpu p50 ${result.frames.gpu?.p50 ?? '-'}ms`);
   await post('/api/result', result);
   await next();
+}
+
+/** JS heap (Chrome only), live GPU bytes (WebGPU) or live GL object counts (WebGL2), pipelines so far. */
+function memorySnapshot() {
+  const mem = (performance as any).memory;
+  const live = (params.backend === 'webgpu' ? wgpu?.report() : wgl?.report()) as any;
+  return {
+    jsHeapUsed: (mem?.usedJSHeapSize as number | undefined) ?? null,
+    gpuBufferBytes: (live?.mem?.buffer as number | undefined) ?? null,
+    gpuTextureBytes: (live?.mem?.texture as number | undefined) ?? null,
+    glObjects: (live?.live as Record<string, number> | undefined) ?? null,
+    pipelines: pipelinesCreated(),
+  };
 }
 
 async function standalone(loop: (done: (n: number, e: number, r: FrameRec) => boolean) => Promise<FrameRec[]>) {

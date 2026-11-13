@@ -44,4 +44,15 @@ export function stutterCount(intervals: number[]) {
   return intervals.filter((x) => x > 2 * m).length;
 }
 
+/** Frames over the 60 fps (16.7 ms) and 30 fps (33.3 ms) budgets, and the worst one. */
+export function longFrames(values: number[]) {
+  let over16 = 0, over33 = 0, max = 0;
+  for (const v of values) {
+    if (v > 16.7) over16++;
+    if (v > 33.3) over33++;
+    if (v > max) max = v;
+  }
+  return { over16, over33, max: Math.round(max * 1000) / 1000 };
+}
+
 export const round3 = (x: number) => Math.round(x * 1000) / 1000;

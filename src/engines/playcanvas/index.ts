@@ -24,6 +24,7 @@ export interface Built {
   path: string;
   notes?: string[];
   update(t: number, dt: number): void;
+  pick?(x: number, y: number): number | Promise<number>;
 }
 
 /** PlayCanvas colors are gamma-space; spec colors are linear. */
@@ -111,7 +112,7 @@ class PlayCanvasAdapter implements EngineAdapter {
 
     switch (data.kind) {
       case 'field':
-        this.built = buildField(this.ctx, data, variant, opt);
+        this.built = await buildField(this.ctx, data, variant, opt);
         break;
       case 'instances':
         this.built = buildInstances(this.ctx, data);
@@ -140,6 +141,10 @@ class PlayCanvasAdapter implements EngineAdapter {
       const bad = device.shaders.find((s) => s.failed);
       if (bad) throw new Error(`playcanvas: shader "${bad.name}" failed to compile/link, its draws were skipped (see consoleErrors)`);
     }
+  }
+
+  pick(x: number, y: number) {
+    return this.built.pick!(x, y);
   }
 
   counters() {

@@ -10,7 +10,6 @@ const OUT = join(import.meta.dirname, '..', 'public', 'assets');
 const MODELS = [
   { name: 'Sponza', dir: 'Models/Sponza/glTF', entry: 'Sponza.gltf' },
   { name: 'Fox', dir: 'Models/Fox/glTF-Binary', entry: 'Fox.glb' },
-  { name: 'BrainStem', dir: 'Models/BrainStem/glTF-Binary', entry: 'BrainStem.glb' },
 ];
 
 async function exists(p: string) {
@@ -136,6 +135,16 @@ for (const m of MODELS) {
     joints: json.skins?.[0]?.joints?.length ?? 0,
   };
   console.log(`${m.name}: ${files.length} files (${fetched} downloaded)`);
+}
+// K9's HUD text: one TTF every engine loads through its own text path.
+{
+  const dest = join(OUT, 'fonts', 'Roboto-Regular.ttf');
+  if (!(await stat(dest).catch(() => null))) {
+    const res = await fetch('https://raw.githubusercontent.com/googlefonts/roboto-2/main/src/hinted/Roboto-Regular.ttf');
+    if (!res.ok) throw new Error(`font download failed: ${res.status}`);
+    await mkdir(dirname(dest), { recursive: true });
+    await writeFile(dest, Buffer.from(await res.arrayBuffer()));
+  }
 }
 await writeFile(join(OUT, 'manifest.json'), JSON.stringify(manifest, null, 2));
 console.log(JSON.stringify(manifest, null, 2));

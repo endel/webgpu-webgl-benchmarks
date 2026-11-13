@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { BenchSession, type QueuedRun } from '../server/api';
-import { allCells, ladderKey, type Cell } from '../src/harness/matrix';
+import { allCells, ladderKey, scenarioById, type Cell } from '../src/harness/matrix';
 import { toSearch } from '../src/harness/params';
 import { rng } from '../src/harness/rng';
 import type { RunParams } from '../src/harness/types';
@@ -36,7 +36,7 @@ const PROFILES: Record<string, Profile> = {
 // Counters runs only need per-frame call medians, not timing precision.
 const COUNTERS_RUN: Partial<RunParams> = { measureFrames: 60, measureMs: 1000 };
 
-const CANARY: Cell = { engine: 'three', backend: 'webgpu', scenario: 's1', variant: 'naive', level: 5000 };
+const CANARY: Cell = { engine: 'three', backend: 'webgpu', scenario: 'k2', variant: 'naive', level: 2000 };
 
 const { values: args } = parseArgs({
   options: {
@@ -75,7 +75,7 @@ const gpuTimingFor = (browser: string) => !args['no-gpu-timing'] && browser !== 
 function buildQueue(sessionId: string, profile: Profile, cells: Cell[], gpuTiming: boolean): QueuedRun[] {
   const runs: QueuedRun[] = [];
   let n = 0;
-  const add = (p: Partial<RunParams>, meta: { ladder: string; level: number; repeat: number; mode: string; tag?: string }) => {
+  const add = (p: Partial<RunParams>, meta: { ladder: string; level: number; repeat: number; mode: string; tag?: string; capacity?: boolean }) => {
     const runId = String(n++).padStart(4, '0');
     // Profile timing windows apply to timing runs; counters/prime runs bring their own.
     const params = {
@@ -95,7 +95,7 @@ function buildQueue(sessionId: string, profile: Profile, cells: Cell[], gpuTimin
   if (profile.prime) {
     for (const engine of engines) {
       const backend = engine === 'three-classic' ? 'webgl2' : 'webgpu';
-      add({ engine, backend, scenario: 's0', tag: 'prime', warmupFrames: 62, warmupMs: 0, measureFrames: 30, measureMs: 0 }, { ladder: `prime|${engine}`, level: 1, repeat: 0, mode: 'timing', tag: 'prime' });
+      add({ engine, backend, scenario: 'k1', tag: 'prime', warmupFrames: 62, warmupMs: 0, measureFrames: 30, measureMs: 0 }, { ladder: `prime|${engine}`, level: 1, repeat: 0, mode: 'timing', tag: 'prime' });
     }
   }
 
@@ -110,7 +110,10 @@ function buildQueue(sessionId: string, profile: Profile, cells: Cell[], gpuTimin
   let sinceCanary = 0;
   const emit = (c: Cell, repeat: number, mode: 'timing' | 'counters', shuffleSeed: number) => {
     const { level, ...ladder } = c;
-    add({ ...(mode === 'counters' ? COUNTERS_RUN : {}), ...c, repeat, mode, screenshot: mode === 'counters' }, { ladder: ladderKey(ladder), level, repeat, mode });
+    const def = scenarioById(c.scenario)!;
+    // K3 keeps its long window in counters mode too: memory growth needs many churn cycles.
+    const window = mode === 'counters' && !def.run ? COUNTERS_RUN : profile.timing ? def.run ?? {} : {};
+    add({ ...window, ...c, repeat, mode, screenshot: mode === 'counters' }, { ladder: ladderKey(ladder), level, repeat, mode, capacity: def.capacity });
     if (profile.canaryEvery && ++sinceCanary >= profile.canaryEvery) {
       sinceCanary = 0;
       add({ ...CANARY, mode: 'timing', tag: 'canary', repeat: shuffleSeed }, { ladder: ladderKey(CANARY), level: CANARY.level, repeat: 0, mode: 'timing', tag: 'canary' });

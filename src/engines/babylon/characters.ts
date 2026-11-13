@@ -28,7 +28,8 @@ function clip(g: AnimationGroup) {
 }
 
 function skinned(ctx: BabylonCtx, d: CharactersScene, container: AssetContainer): Built {
-  const groups: AnimationGroup[] = [];
+  const clips = d.blend ? [d.clip, d.blend.clip] : [d.clip];
+  const groups: AnimationGroup[][] = [];
   for (let i = 0; i < d.count; i++) {
     const inst = container.instantiateModelsToScene((name) => `${name}#${i}`);
     const root = new TransformNode(`character${i}`, ctx.scene);
@@ -36,16 +37,29 @@ function skinned(ctx: BabylonCtx, d: CharactersScene, container: AssetContainer)
     root.rotation.y = d.yaw[i];
     root.scaling.setAll(d.scale);
     for (const n of inst.rootNodes) n.parent = root;
-    inst.animationGroups.forEach((g, k) => k !== d.clip && g.dispose());
-    const g = inst.animationGroups[d.clip];
-    g.start(true); // goToFrame() is a no-op on stopped groups; ignoreAnimations keeps it from advancing
-    groups.push(g);
+    inst.animationGroups.forEach((g, k) => !clips.includes(k) && g.dispose());
+    groups.push(clips.map((k) => {
+      const g = inst.animationGroups[k];
+      g.start(true); // goToFrame() is a no-op on stopped groups
+      if (d.blend) g.pause(); // paused groups keep their frame while scene.animate() resolves the weights
+      return g;
+    }));
   }
-  const { from, duration } = clip(groups[0]);
+  const info = groups[0].map(clip);
+  const w = d.blend?.weight;
   return {
-    path: 'instantiateModelsToScene per character (cloned skeletons, AnimationGroup.goToFrame)',
+    path: w
+      ? 'instantiateModelsToScene per character (cloned skeletons), two weighted AnimationGroups per character'
+      : 'instantiateModelsToScene per character (cloned skeletons, AnimationGroup.goToFrame)',
+    animate: !!w,
     update(t) {
-      for (let i = 0; i < groups.length; i++) groups[i].goToFrame(from + ((t + d.phase[i]) % duration) * FPS);
+      for (let i = 0; i < groups.length; i++) {
+        for (let k = 0; k < clips.length; k++) {
+          const g = groups[i][k];
+          if (w) g.setWeightForAllAnimatables(k ? w[i] : 1 - w[i]);
+          g.goToFrame(info[k].from + ((t + d.phase[i]) % info[k].duration) * FPS, !!w);
+        }
+      }
     },
   };
 }

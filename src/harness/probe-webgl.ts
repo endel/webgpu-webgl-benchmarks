@@ -9,6 +9,8 @@ export class WebGLProbe {
   contextAttributes: WebGLContextAttributes | null = null;
   frame: FrameCounters = {};
   totals = { programsLinked: 0, shadersCompiled: 0 };
+  /** Live object counts: WebGL exposes no sizes, so leaks show up as counts that keep growing. */
+  live = { buffers: 0, textures: 0, programs: 0 };
   gpuTimes = new Map<number, number>();
   errors: string[] = [];
   readonly counting: boolean;
@@ -84,6 +86,7 @@ export class WebGLProbe {
       renderer,
       contextAttributes: this.contextAttributes,
       totals: { ...this.totals },
+      live: { ...this.live },
       errors: this.errors,
     };
   }
@@ -118,6 +121,17 @@ export class WebGLProbe {
       p.totals.shadersCompiled++;
       return orig.call(this, sh);
     });
+
+    for (const [kind, key] of [['Buffer', 'buffers'], ['Texture', 'textures'], ['Program', 'programs']] as const) {
+      wrap(GL, `create${kind}`, (orig) => function (this: any) {
+        p.live[key]++;
+        return orig.call(this);
+      });
+      wrap(GL, `delete${kind}`, (orig) => function (this: any, o: unknown) {
+        if (o) p.live[key]--;
+        return orig.call(this, o);
+      });
+    }
 
     if (!this.counting) return;
 
