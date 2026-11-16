@@ -7,9 +7,6 @@ import type { Built, Ctx } from './common';
 const NO_STEP = { deltaMS: 0 } as Ticker;
 
 export async function buildCharacters({ view }: Ctx, d: CharactersScene, variant: Variant): Promise<Built> {
-  if (variant === 'optimized') {
-    throw new Error('N/A: @pixi/3d 0.1.0 has no instanced or baked skinning path (BatchedMesh3D slots take a geometry, a material and a matrix, no skeleton); Model3D per character is the only crowd path');
-  }
   const source = await Assets.load<Scene3DSource>(d.url);
   const labels = Object.keys(source.animations);
   const clipA = labels[d.clip], clipB = d.blend ? labels[d.blend.clip] : null;
@@ -36,6 +33,7 @@ export async function buildCharacters({ view }: Ctx, d: CharactersScene, variant
     return { player, a: player.play(clipA), b: clipB ? player.play(clipB) : null };
   });
   const notes = fixed.size ? ['glTF has no normals: flat normals rebuilt once with getAttributeData (documented 0.1.0 limitation, from-threejs.md)'] : [];
+  if (variant === 'optimized') notes.push('no instanced or baked skinning path in @pixi/3d 0.1.0 (BatchedMesh3D slots take no skeleton): the default path runs the crowd workload');
   return {
     path: `Model3D per character (shared Scene3DSource), AnimationPlayer${clipB ? ' with two weighted AnimationStates' : ''}`,
     notes,

@@ -19,7 +19,6 @@ const blendGraph = {
 };
 
 export async function buildCharacters({ app }: PcCtx, d: CharactersScene, variant: Variant): Promise<Built> {
-  if (variant === 'optimized') throw new Error('N/A: PlayCanvas has no instanced or baked (vertex-animation-texture) skinning path, and its BatchManager skips skinned meshes');
   const res = await loadContainer(app, d.url);
   const track = res.animations[d.clip].resource as pc.AnimTrack;
   const blend = d.blend;
@@ -52,7 +51,10 @@ export async function buildCharacters({ app }: PcCtx, d: CharactersScene, varian
   if (!blend) {
     return {
       path: 'instantiateRenderEntity per character + anim component',
-      notes: ['clip time = (t + phase) mod duration via AnimComponentLayer.activeStateCurrentTime; anim speed 0'],
+      notes: [
+        'clip time = (t + phase) mod duration via AnimComponentLayer.activeStateCurrentTime; anim speed 0',
+        ...(variant === 'optimized' ? ['no instanced or baked skinning path in PlayCanvas (its BatchManager skips skinned meshes): the default path runs the crowd workload'] : []),
+      ],
       update(t) {
         for (let i = 0; i < layers.length; i++) layers[i].activeStateCurrentTime = (t + d.phase[i]) % duration;
       },

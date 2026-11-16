@@ -65,7 +65,10 @@ export interface EngineAdapter {
   init(canvas: HTMLCanvasElement, opts: InitOptions): Promise<InitReport>;
   /** Build the scene and finish pipeline compilation (engine precompile API + warm-up frames as needed). */
   load(scene: SceneData, variant: Variant, opt?: string): Promise<LoadReport>;
-  /** Update + render exactly one frame, submitting GPU work before returning. */
+  /**
+   * Update + render exactly one frame, submitting GPU work before returning. On a scene with a
+   * `cameraPath`, `t` is the pose time and wraps to 0 at the end of every lap.
+   */
   frame(t: number, dt: number): void;
   /** Engine-reported stats for the last frame, used to cross-check the probe. */
   counters?(): Record<string, number>;
@@ -143,10 +146,22 @@ export interface PostSpec {
   bloom: { strength: number; threshold: number; radius: number };
 }
 
+export interface CameraPath {
+  /** Seconds of scene time one lap covers. */
+  duration: number;
+  /** Poses per lap, evenly spaced in [0, duration). */
+  poses: number;
+}
+
 interface BaseScene {
   camera: CameraSpec;
   /** The camera's position and target are rewritten by update(t); adapters re-apply them every frame. */
   cameraLive?: boolean;
+  /**
+   * The harness renders these poses in whole laps, whatever the frame rate, so every engine and
+   * browser measures the same views.
+   */
+  cameraPath?: CameraPath;
   clearColor: Vec3;
   ambient: { color: Vec3; intensity: number };
   sun?: SunSpec;
@@ -228,6 +243,9 @@ export interface PickSpec {
  * origin top-left, x right, y down. The HUD must not be tone-mapped or bloomed.
  * Draw order, back to front: panels, icons, nameplates (bar background, bar fill, icon, label),
  * dynamic text.
+ * The run's variant selects the HUD path only: naive is the engine's default way to build it,
+ * optimized its first-party batching path (`N/A (as naive)` where it has none). The meshes under the HUD
+ * are always built with the naive object path.
  */
 export interface HudSpec {
   /** Square cells in a grid; cell i is at column i % cols, row floor(i / cols). */

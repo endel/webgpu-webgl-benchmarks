@@ -14,6 +14,8 @@ export interface GpuFrameTime {
   span: number;
   /** Sum of individual pass durations. */
   sum: number;
+  /** Union of the pass intervals: time the GPU was running any of the frame's passes, counting overlaps once and gaps never. */
+  busy: number;
   passes: number;
 }
 
@@ -142,17 +144,27 @@ export class WebGPUProbe {
         .mapAsync(GPUMapMode.READ, 0, used * 8)
         .then(() => {
           const t = new BigInt64Array(s.readback.getMappedRange(0, used * 8));
-          let first: bigint | null = null, last: bigint | null = null, sum = 0, passes = 0;
+          const spans: [bigint, bigint][] = [];
+          let sum = 0;
           for (let i = 0; i < used; i += 2) {
             const b = t[i], e = t[i + 1];
             if (b === 0n || e === 0n || e < b) continue;
-            if (first === null || b < first) first = b;
-            if (last === null || e > last) last = e;
+            spans.push([b, e]);
             sum += Number(e - b);
-            passes++;
           }
           s.readback.unmap();
-          if (passes && first !== null && last !== null) this.gpuTimes.set(s.frame, { span: Number(last - first) / 1e6, sum: sum / 1e6, passes });
+          if (!spans.length) return;
+          spans.sort((x, y) => (x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : 0));
+          let busy = 0n, [runB, runE] = spans[0];
+          for (const [b, e] of spans) {
+            if (b > runE) {
+              busy += runE - runB;
+              runB = b;
+              runE = e;
+            } else if (e > runE) runE = e;
+          }
+          busy += runE - runB;
+          this.gpuTimes.set(s.frame, { span: Number(runE - spans[0][0]) / 1e6, sum: sum / 1e6, busy: Number(busy) / 1e6, passes: spans.length });
         })
         .catch(() => {})
         .finally(() => {
@@ -317,29 +329,52 @@ export class WebGPUProbe {
     count(RP, 'setVertexBuffer', 'setVertexBuffer');
     count(RP, 'setIndexBuffer', 'setIndexBuffer');
 
-    const bundleDraws = new WeakMap<GPURenderBundle, number>();
-    const recording = new WeakMap<GPURenderBundleEncoder, number>();
+    // A bundle's draws are recorded once and replayed by executeBundles, so the work is credited on every replay.
+    type BundleWork = { draws: number; instances: number; triangles: number; indirect: number };
+    const bundleWork = new WeakMap<GPURenderBundle, BundleWork>();
+    const recording = new WeakMap<GPURenderBundleEncoder, BundleWork>();
+    const recorded = (enc: GPURenderBundleEncoder) => {
+      let w = recording.get(enc);
+      if (!w) recording.set(enc, (w = { draws: 0, instances: 0, triangles: 0, indirect: 0 }));
+      w.draws++;
+      return w;
+    };
     const RB = GPURenderBundleEncoder.prototype;
-    for (const name of ['draw', 'drawIndexed', 'drawIndirect', 'drawIndexedIndirect']) {
+    for (const name of ['draw', 'drawIndexed']) {
       wrap(RB, name, (orig) => function (this: GPURenderBundleEncoder, ...args: any[]) {
-        recording.set(this, (recording.get(this) ?? 0) + 1);
+        const w = recorded(this);
+        const inst = args[1] ?? 1;
+        w.instances += inst;
+        w.triangles += Math.floor(args[0] / 3) * inst;
+        return orig.apply(this, args);
+      });
+    }
+    for (const name of ['drawIndirect', 'drawIndexedIndirect']) {
+      wrap(RB, name, (orig) => function (this: GPURenderBundleEncoder, ...args: any[]) {
+        recorded(this).indirect++;
         return orig.apply(this, args);
       });
     }
     wrap(RB, 'finish', (orig) => function (this: GPURenderBundleEncoder, desc?: GPURenderBundleDescriptor) {
       const b = orig.call(this, desc);
-      bundleDraws.set(b, recording.get(this) ?? 0);
+      const w = recording.get(this);
+      if (w) bundleWork.set(b, w);
       p.totals.bundles++;
       p.inc('bundlesCreated');
       return b;
     });
     wrap(RP, 'executeBundles', (orig) => function (this: GPURenderPassEncoder, bundles: Iterable<GPURenderBundle>) {
       const list = [...bundles];
-      let n = 0;
-      for (const b of list) n += bundleDraws.get(b) ?? 0;
       p.inc('executeBundles');
-      p.inc('bundleDraws', n);
-      p.inc('draws', n);
+      for (const b of list) {
+        const w = bundleWork.get(b);
+        if (!w) continue;
+        p.inc('bundleDraws', w.draws);
+        p.inc('draws', w.draws);
+        p.inc('instances', w.instances);
+        p.inc('triangles', w.triangles);
+        if (w.indirect) p.inc('indirectDraws', w.indirect);
+      }
       return orig.call(this, list);
     });
 

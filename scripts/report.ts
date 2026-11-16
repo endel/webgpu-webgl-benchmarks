@@ -7,11 +7,12 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { parseArgs } from 'node:util';
 import { K4_STEPS, SCENARIOS } from '../src/harness/matrix';
+import { BUDGET_MS, frameCost, gpuBusy } from '../src/harness/frame-cost';
+import { gpuSampling, heapGrowth, MIN_GPU_FRAMES, notApplicable, pickAgreement, pickMajority, renderGuard } from './report-checks';
 
 const ROOT = join(import.meta.dirname, '..');
 const RESULTS = join(ROOT, 'results');
 const OUT = join(ROOT, 'report', 'out');
-const BUDGET_MS = 1000 / 60;
 
 const { values: args } = parseArgs({ options: { sessions: { type: 'string' }, 'include-smoke': { type: 'boolean', default: false } } });
 
@@ -82,7 +83,6 @@ interface Cell {
 const cells = new Map<string, Cell>();
 /** Browsers whose frame loop is vsync-capped (Safari): there, an interval past the cap is a real frame cost. */
 const cappedBrowsers = new Set<string>();
-const CAP_SLACK_MS = 20;
 const browsers: any[] = [];
 const engineVersions: Record<string, string> = {};
 
@@ -100,12 +100,14 @@ for (const s of sessions) {
   const pct = (p: number) => cs[Math.round(p * (cs.length - 1))];
   const canarySpread = cs.length > 4 ? r3((pct(0.9) - pct(0.1)) / (2 * pct(0.5))) : null;
   // A partial rerun of a browser adds its cells, but the first (full) session describes the browser.
+  // Calibration, prime and canary runs are harness overhead (primes replay on every browser launch).
+  const runs = lines.filter((r) => !(r.params?.tag ?? r.tag));
   const counts = {
-    ok: lines.filter((r) => r.status === 'ok').length,
-    invalid: lines.filter((r) => r.status === 'invalid').length,
-    error: lines.filter((r) => (r.status === 'error' && !/^N\/A:/.test(String(r.error ?? ''))) || r.status === 'timeout').length,
-    na: lines.filter((r) => r.status === 'error' && /^N\/A:/.test(String(r.error ?? ''))).length,
-    skipped: lines.filter((r) => r.status === 'skipped').length,
+    ok: runs.filter((r) => r.status === 'ok').length,
+    invalid: runs.filter((r) => r.status === 'invalid').length,
+    error: runs.filter((r) => (r.status === 'error' && !notApplicable(r.error)) || r.status === 'timeout').length,
+    na: runs.filter((r) => r.status === 'error' && !!notApplicable(r.error)).length,
+    skipped: runs.filter((r) => r.status === 'skipped').length,
   };
   const known = browsers.find((x) => x.name === b.name);
   if (known) {
@@ -157,15 +159,11 @@ const out: any[] = [];
 for (const c of cells.values()) {
   const t = c.timing.length ? c.timing : c.counters ? [c.counters] : [];
   const pick = (path: string) => stat(t.map((r) => get(r, path)));
-  const na = c.failures.find((r) => /^N\/A:/.test(String(r.error ?? '')));
+  const na = c.failures.find((r) => notApplicable(r.error));
   const status = c.timing.some((r) => r.status === 'ok') ? 'ok' : c.timing.length ? 'invalid' : na ? 'na' : c.failures.length ? 'error' : c.skipped ? 'skipped' : c.counters ? 'ok' : 'missing';
   const ref = c.counters ?? c.timing[0];
-  // GPU busy time ≤ min(span, sum): the span counts idle gaps between an engine's submits,
-  // the sum double-counts passes that overlap on a tile-based GPU.
-  const busy = (r: any, q: 'p50' | 'p95') => {
-    const span = get(r, `frames.gpu.${q}`), sum = get(r, `frames.gpuSum.${q}`);
-    return span == null ? null : sum == null ? span : Math.min(span, sum);
-  };
+  const costs = t.map((r) => frameCost(r.frames, { capped: cappedBrowsers.has(c.browser) }));
+  const timed = stat(t.map((r) => gpuSampling(r.frames)?.timed));
   out.push({
     browser: c.browser,
     engine: c.engine,
@@ -176,27 +174,27 @@ for (const c of cells.values()) {
     status,
     repeats: c.timing.length,
     error: c.failures[0] ? errText(c.failures[0]) : null,
+    asNaive: status === 'na' && !!notApplicable(na?.error)?.asNaive,
     // Measured, but another run of the same cell crashed or timed out.
     // A timeout while still navigating is the previous run's wedged browser, not this cell.
     unstable: status === 'ok' && c.failures.some((r) => (r.status === 'error' || r.status === 'timeout') && !/stalled at: navigating/.test(String(r.error ?? ''))),
     interval: { p50: pick('frames.interval.p50'), p95: pick('frames.interval.p95') },
     cpu: { p50: pick('frames.cpu.p50'), p95: pick('frames.cpu.p95') },
     gpu: {
-      p50: stat(t.map((r) => busy(r, 'p50'))),
-      p95: stat(t.map((r) => busy(r, 'p95'))),
+      p50: stat(t.map((r) => gpuBusy(r.frames, 'p50'))),
+      p95: stat(t.map((r) => gpuBusy(r.frames, 'p95'))),
       spanP50: pick('frames.gpu.p50'),
       sumP50: pick('frames.gpuSum.p50'),
       passes: pick('frames.gpuPasses.p50'),
       coverage: pick('frames.gpuCoverage'),
+      timed,
+      few: !!timed && timed.med < MIN_GPU_FRAMES,
     },
     sim: pick('frames.sim.p50'),
     stutter: pick('frames.stutter'),
-    // In a capped browser a frame interval past the cap is the real cost: it also covers GPU work
-    // that has no timer (WebGL2 in Safari) and presentation the pass timestamps miss.
-    frameCost: stat(t.map((r) => {
-      const interval = get(r, 'frames.interval.p50') ?? 0;
-      return Math.max(get(r, 'frames.cpu.p95') ?? 0, busy(r, 'p95') ?? 0, cappedBrowsers.has(c.browser) && interval > CAP_SLACK_MS ? interval : 0);
-    })),
+    frameCost: stat(costs.map((x) => x.ms)),
+    frameCostRaw: stat(costs.map((x) => x.raw)),
+    stallAdjusted: costs.some((x) => x.stallAdjusted),
     timings: {
       ttff: pick('timings.ttffMs'),
       import: pick('timings.importMs'),
@@ -217,17 +215,19 @@ for (const c of cells.values()) {
       intervalOver33: pick('frames.long.interval.over33'),
       intervalMax: pick('frames.long.interval.max'),
     },
-    // Growth across the measurement window: heap from timing runs, GPU resources from the counters run.
+    // Growth across the measurement window: heap from timing runs (only where a collection was forced
+    // before both snapshots), GPU resources from the counters run.
     growth: {
-      jsHeap: stat(t.map((r) => (r.memory?.after?.jsHeapUsed != null && r.memory?.before?.jsHeapUsed != null ? r.memory.after.jsHeapUsed - r.memory.before.jsHeapUsed : null))),
+      jsHeap: stat(t.map((r) => heapGrowth(r.memory))),
       gpuBytes: growth(ref, (m) => (m.gpuBufferBytes == null ? null : m.gpuBufferBytes + (m.gpuTextureBytes ?? 0))),
       glTextures: growth(ref, (m) => m.glObjects?.textures ?? null),
       glBuffers: growth(ref, (m) => m.glObjects?.buffers ?? null),
       pipelines: growth(ref, (m) => m.pipelines ?? null),
     },
-    pick: ref?.pick ? { p50: pick('pick.ms.p50'), p95: pick('pick.ms.p95'), hits: ref.pick.hits, points: ref.pick.ids?.length ?? 0, ids: ref.pick.ids } : null,
+    pick: ref?.pick ? { p50: pick('pick.ms.p50'), p95: pick('pick.ms.p95'), hits: ref.pick.hits, points: ref.pick.ids?.length ?? 0, ids: ref.pick.ids, agree: null as number | null, agreeOf: 0 } : null,
     pipelinesDuringMeasure: pick('pipelinesDuringMeasure'),
     counters: c.counters?.counters ?? null,
+    expected: c.counters?.expected ?? null,
     gpuMem: c.counters?.probe?.mem ?? ref?.probe?.mem ?? null,
     gpuTotals: c.counters?.probe?.totals ?? ref?.probe?.totals ?? null,
     canvas: ref?.probe?.canvas ?? null,
@@ -244,7 +244,7 @@ for (const c of cells.values()) {
 for (const c of out) {
   if (c.status !== 'skipped') continue;
   const na = out.find((o) => o.status === 'na' && o.browser === c.browser && o.engine === c.engine && o.backend === c.backend && o.scenario === c.scenario && o.variant === c.variant);
-  if (na) Object.assign(c, { status: 'na', error: na.error });
+  if (na) Object.assign(c, { status: 'na', error: na.error, asNaive: na.asNaive });
 }
 
 // ---- a WebGPU run whose timestamps were on but never resolved did not finish a frame on the GPU:
@@ -262,8 +262,6 @@ for (const c of out) {
 // that fails to compile without a GPU error). Chrome's draw counts are the reference.
 const chromeDraws = new Map(out.filter((c) => c.browser === 'Chrome' && c.counters?.draws != null).map((c) => [[c.engine, c.backend, c.scenario, c.variant, c.level].join('|'), c.counters.draws]));
 for (const c of out) {
-  // Moving cameras: culling (and draw count) depends on how much of the path a browser covered.
-  if (c.scenario === 'k4' || c.scenario === 'k5') continue;
   const ref = chromeDraws.get([c.engine, c.backend, c.scenario, c.variant, c.level].join('|'));
   if (c.browser === 'Chrome' || c.status !== 'ok' || c.counters?.draws == null || !ref || ref < 10 || c.counters.draws >= 0.5 * ref) continue;
   c.status = 'error';
@@ -271,7 +269,36 @@ for (const c of out) {
   console.log(`flagged ${c.browser} ${c.engine} ${c.backend} ${c.scenario} ${c.variant}@${c.level}: ${c.error}`);
 }
 
-// ---- ladders: "max N at 60 fps" from the vsync-independent frame cost (max of CPU p95, GPU p95) ----
+// ---- render guard: in a test with every object in view, the counters run must draw the scene's triangles.
+for (const c of out) {
+  const g = renderGuard(c.variant, c.counters, c.expected);
+  if (g.note) c.notes.push(g.note);
+  if (!g.error || c.status !== 'ok') continue;
+  c.status = 'error';
+  c.error = g.error;
+  console.log(`flagged ${c.browser} ${c.engine} ${c.backend} ${c.scenario} ${c.variant}@${c.level}: ${c.error}`);
+}
+
+// ---- pick agreement: engines answer the same 64 points, so each is compared with the majority answer
+// of every engine, backend and path in the same browser. A tied point has no majority and is left out.
+const pickGroups = new Map<string, any[]>();
+for (const c of out) {
+  if (!c.pick?.ids?.length) continue;
+  const k = [c.browser, c.scenario, c.level].join('|');
+  if (!pickGroups.has(k)) pickGroups.set(k, []);
+  pickGroups.get(k)!.push(c);
+}
+for (const list of pickGroups.values()) {
+  const majority = pickMajority(list.map((c) => c.pick.ids));
+  for (const c of list) {
+    const { agree, of } = pickAgreement(c.pick.ids, majority);
+    Object.assign(c.pick, { agree: of ? agree : null, agreeOf: of });
+  }
+}
+
+// ---- ladders: "max N at 60 fps" from the frame cost: the larger of GPU p95 and CPU p95, with the CPU tail
+// charged at most twice the CPU median (src/harness/frame-cost.ts). A ladder is marked adjusted when that
+// cap changed any level the verdict reads, up to the first one over budget.
 const ladders: any[] = [];
 const groups = new Map<string, any[]>();
 for (const c of out) {
@@ -284,12 +311,12 @@ for (const c of out) {
 for (const [k, list] of groups) {
   const [browser, engine, backend, scenario, variant] = k.split('|');
   // Level 0 is K9's no-HUD baseline, not a point on the ladder.
-  const pts = list.filter((c) => c.status === 'ok' && c.frameCost && c.level > 0).map((c) => ({ level: c.level, cost: c.frameCost.med })).sort((a, b) => a.level - b.level);
+  const pts = list.filter((c) => c.status === 'ok' && c.frameCost && c.level > 0).map((c) => ({ level: c.level, cost: c.frameCost.med, adjusted: c.stallAdjusted })).sort((a, b) => a.level - b.level);
+  const i = pts.findIndex((p) => p.cost > BUDGET_MS);
   let maxAt60: number | null = null, bound: 'below' | 'within' | 'beyond' | null = null;
   if (pts.length) {
     if (pts[0].cost > BUDGET_MS) bound = 'below';
     else {
-      const i = pts.findIndex((p) => p.cost > BUDGET_MS);
       if (i < 0) {
         bound = 'beyond';
         maxAt60 = pts[pts.length - 1].level;
@@ -302,7 +329,8 @@ for (const [k, list] of groups) {
       }
     }
   }
-  ladders.push({ browser, engine, backend, scenario, variant, points: pts, maxAt60, bound });
+  const adjusted = pts.slice(0, i < 0 ? pts.length : i + 1).some((p) => p.adjusted);
+  ladders.push({ browser, engine, backend, scenario, variant, points: pts, maxAt60, bound, adjusted });
 }
 
 // ---- gallery thumbnails (JPEG via macOS sips, embedded as data URIs) ----

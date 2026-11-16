@@ -18,8 +18,9 @@ export async function buildField(ctx: Ctx, d: FieldScene, variant: Variant): Pro
   const geos = d.geometries.map(toGeometry);
   const mats = d.materials.map((m) => toMaterial(m));
   let objects: Objects;
+  if (d.hud && variant === 'optimized') throw new Error('N/A (as naive): the pixi 2D HUD is already batched, with its per-frame text in its own render group; there is no further HUD batching path');
   if (variant === 'optimized') {
-    if (d.pick) throw new Error('N/A: @pixi/3d 0.1.0 has no accelerated picker (view.raycast is a CPU ray test with no BVH; no first-party GPU id-buffer picker)');
+    if (d.pick) throw new Error('N/A (as naive): view.raycast is the only first-party picker in @pixi/3d 0.1.0 (a CPU ray test with no BVH; no GPU id-buffer picker)');
     objects = batched(ctx, d, geos, mats);
   } else if (d.churn) objects = churn(ctx, d, geos, mats);
   else objects = naive(ctx, d, geos, mats);

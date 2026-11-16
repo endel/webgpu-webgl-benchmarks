@@ -168,6 +168,7 @@ function picking(ctx: LiteCtx, meshes: Mesh[], gpu: boolean) {
 
 export async function buildField(ctx: LiteCtx, d: FieldScene, variant: Variant, _opt?: string): Promise<Built> {
   if (d.ground || d.spots || d.pointLights || d.post || d.shadows) throw new Error('N/A: field ground/spot/point-light/post features are not part of the key tests and are not implemented for Babylon Lite');
+  if (d.hud && variant === 'optimized') throw new Error('N/A (as naive): Sprite2D layers and the TextRenderer already batch every sprite and label; Babylon Lite has no further HUD batching path');
   const mats = d.materials.map(toMaterial);
   const optimized = variant === 'optimized';
   if (optimized && !d.pick) {

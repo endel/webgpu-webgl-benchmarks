@@ -14,8 +14,9 @@ interface Objects {
 
 export async function buildField(ctx: Ctx, sun: THREE.DirectionalLight | null, d: FieldScene, variant: Variant, opt: string | undefined, f: Features): Promise<Built> {
   const { scene, camera } = ctx;
+  if (d.hud && variant === 'optimized') throw new Error('N/A (as naive): three ships no UI layer; the naive HUD is already this benchmark\'s own quad batcher, so there is no first-party batching path to switch to');
   if (d.pick && variant === 'optimized') {
-    throw new Error('N/A: three ships no accelerated picker (Raycaster tests every triangle of every candidate mesh; three-mesh-bvh is third-party)');
+    throw new Error('N/A (as naive): Raycaster is the only first-party picker in three (it tests every triangle of every candidate mesh; three-mesh-bvh is third-party)');
   }
   if (d.hud && d.post) throw new Error('three field: hud + post is not implemented');
   ctx.renderer.shadowMap.enabled = d.shadows;
