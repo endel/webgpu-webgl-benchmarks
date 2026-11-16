@@ -90,11 +90,11 @@ test('the browser is not relaunched once no queued run is left to serve', () => 
   assert.ok(session.done);
 });
 
-test('a capacity ladder climbs past a GPU wait in the CPU tail and stops past the budget', () => {
+test('a capacity ladder stops one level past the budget, on the frame cost the report charges', () => {
   const session = newSession([8000, 16000, 32000].map((level, i) => queued(`000${i}`, 'three|webgpu|k2|naive', { level, capacity: true })));
   session.nextGeneration();
   assert.equal(session.take()?.level, 8000);
-  session.record({ status: 'ok', runId: '0000', frames: { cpu: { p50: 0.64, p95: 20 }, gpu: { p50: 1.5, p95: 1.6 }, interval: { p50: 0.9 } } });
+  session.record({ status: 'ok', runId: '0000', frames: { cpu: { p50: 6.4, p95: 9 }, gpu: { p50: 1.5, p95: 1.6 }, interval: { p50: 7 } } });
   assert.equal(session.take()?.level, 16000);
   session.record({ status: 'ok', runId: '0001', frames: { cpu: { p50: 24.9, p95: 27.5 }, interval: { p50: 25 } } });
   assert.equal(session.take(), null);

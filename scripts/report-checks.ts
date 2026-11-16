@@ -1,22 +1,37 @@
 // Checks the report applies to recorded runs and aggregated cells. Pure, so they can be tested without results.
 
 export interface ExpectedWork { objects: number; triangles: number }
-export interface RenderCounters { draws?: number; triangles?: number; indirectDraws?: number }
+export interface RenderCounters {
+  draws?: number;
+  triangles?: number;
+  indirectDraws?: number;
+  /** Triangles of the indirect draws, read back from their argument buffers. */
+  indirectTriangles?: number;
+  /** Frames whose indirect arguments were all read back. */
+  indirectFrames?: number;
+  /** Indirect draws whose buffer the probe could not copy. */
+  indirectUnreadable?: number;
+}
 
 const num = (x: number) => Math.round(x).toLocaleString('en-US');
 
 /**
- * With every object in view, a correct frame draws at least the scene's triangles. The probe can't
- * see how many triangles an indirect draw covers, so those runs are not judged.
+ * With every object in view, a correct frame draws at least the scene's triangles. Indirect draws
+ * count with the triangles read back from their arguments; a run whose arguments could not be read
+ * is noted as unchecked rather than judged on part of its work.
  */
 export function renderGuard(variant: string, counters: RenderCounters | null | undefined, expected: ExpectedWork | null | undefined): { note?: string; error?: string } {
   if (!expected || !counters) return {};
+  const notes: string[] = [];
+  if (variant === 'naive' && counters.draws != null && counters.draws < expected.objects) notes.push(`batches automatically: ${num(counters.draws)} draw calls for ${num(expected.objects)} objects`);
   const out: { note?: string; error?: string } = {};
-  if (variant === 'naive' && counters.draws != null && counters.draws < expected.objects) out.note = `batches automatically: ${num(counters.draws)} draw calls for ${num(expected.objects)} objects`;
-  const tris = counters.triangles ?? 0;
-  if (!((counters.indirectDraws ?? 0) > 0) && !(tris >= 0.98 * expected.triangles)) {
-    out.error = `incomplete render: ${Math.round((100 * tris) / expected.triangles)}% of the expected triangles (${num(tris)} of ${num(expected.triangles)} per frame)`;
+  if ((counters.indirectDraws ?? 0) > 0 && (!counters.indirectFrames || (counters.indirectUnreadable ?? 0) > 0)) {
+    notes.push('render guard not applied: the indirect draws\' arguments were not read back');
+  } else {
+    const tris = (counters.triangles ?? 0) + (counters.indirectTriangles ?? 0);
+    if (!(tris >= 0.98 * expected.triangles)) out.error = `incomplete render: ${Math.round((100 * tris) / expected.triangles)}% of the expected triangles (${num(tris)} of ${num(expected.triangles)} per frame)`;
   }
+  if (notes.length) out.note = notes.join('; ');
   return out;
 }
 

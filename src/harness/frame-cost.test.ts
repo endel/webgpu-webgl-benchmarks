@@ -5,34 +5,17 @@ import { BUDGET_MS, frameCost, gpuBusy, type FrameSummaries } from './frame-cost
 const q = (p50: number, p95: number) => ({ p50, p95 });
 const at = (cpu: [number, number], gpuP95: number): FrameSummaries => ({ cpu: q(...cpu), gpu: { p95: gpuP95 } });
 
-test('a CPU tail from waiting on the GPU is charged at most twice the median', () => {
-  const tiny = frameCost({ cpu: q(0.64, 7.008), gpu: q(1.543, 1.584), gpuSum: q(1.543, 1.584) });
-  assert.deepEqual([tiny.ms, tiny.raw, tiny.stallAdjusted], [1.584, 7.008, true]);
-  const small = frameCost(at([1.255, 7.28], 2.632));
-  assert.deepEqual([small.ms, small.stallAdjusted], [2.632, true]);
-  const steady = frameCost(at([2.807, 4.626], 4.337));
-  assert.deepEqual([steady.ms, steady.raw, steady.stallAdjusted], [4.626, 4.626, false]);
-});
-
-test('a 60 Hz stall in the tail cannot put a light level over the budget', () => {
-  for (const cpu of [[0.64, 11], [0.64, 20], [1.26, 20]] as [number, number][]) {
-    const cost = frameCost(at(cpu, 1.6));
-    assert.ok(cost.ms < BUDGET_MS && cost.ms < 18, `cpu ${cpu}: ${cost.ms} ms`);
-    assert.ok(cost.stallAdjusted);
-  }
-});
-
-test('a level near or over the budget is charged its full p95', () => {
-  const over = frameCost(at([24.925, 27.495], 3));
-  assert.equal(over.ms, 27.495);
-  assert.ok(over.ms > BUDGET_MS);
-  assert.equal(over.stallAdjusted, false);
+test('the CPU tail is charged in full, so hitches count against the budget', () => {
+  // With one frame in flight the tail is engine work: a 67 ms hitch over an 8 ms median is a level over budget.
+  const hitch = frameCost(at([8.055, 67.547], 3.415));
+  assert.equal(hitch.ms, 67.547);
+  assert.ok(hitch.ms > BUDGET_MS);
+  assert.equal(frameCost(at([24.925, 27.495], 3)).ms, 27.495);
   assert.equal(frameCost(at([10.995, 16.485], 2)).ms, 16.485);
 });
 
-test('a stall far past the median is cut to twice the median', () => {
-  const cost = frameCost(at([8.055, 67.547], 3.415));
-  assert.deepEqual([cost.ms, cost.raw, cost.stallAdjusted], [16.11, 67.547, true]);
+test('a GPU-bound level is charged its GPU time', () => {
+  assert.equal(frameCost({ cpu: q(0.64, 0.9), gpu: q(1.543, 1.584), gpuSum: q(1.543, 1.584) }).ms, 1.584);
 });
 
 test('GPU busy time is the smaller of span and pass sum', () => {
@@ -57,7 +40,6 @@ test('time spent outside the page and the GPU passes puts a level over the budge
   const cost = frameCost({ cpu: q(10.9, 13), gpu: { p95: 12.4 }, interval: { p50: 52.1 } });
   assert.equal(cost.ms, 52.1);
   assert.ok(cost.ms > BUDGET_MS);
-  assert.equal(cost.stallAdjusted, false);
 });
 
 test('an interval that matches the CPU or GPU time changes nothing', () => {
@@ -65,8 +47,7 @@ test('an interval that matches the CPU or GPU time changes nothing', () => {
   assert.equal(frameCost({ cpu: q(8.6, 10.1), gpu: { p95: 6 }, interval: { p50: 9.4 } }).ms, 10.1);
 });
 
-test('missing summaries cost nothing, and a missing CPU median charges the p95 in full', () => {
-  for (const frames of [null, undefined]) assert.deepEqual(frameCost(frames), { ms: 0, cpu: 0, gpu: 0, raw: 0, stallAdjusted: false });
-  const cost = frameCost({ cpu: { p95: 12 } });
-  assert.deepEqual([cost.ms, cost.stallAdjusted], [12, false]);
+test('missing summaries cost nothing', () => {
+  for (const frames of [null, undefined]) assert.deepEqual(frameCost(frames), { ms: 0, cpu: 0, gpu: 0 });
+  assert.equal(frameCost({ cpu: { p95: 12 } }).ms, 12);
 });

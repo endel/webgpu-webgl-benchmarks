@@ -36,8 +36,7 @@ const EARLY_STOP_MS = 100;
 /** One level past the 16.7 ms budget is kept, so the report can interpolate the capacity. */
 const CAPACITY_STOP_MS = 18;
 
-// A capacity ladder stops on the frame cost the report charges, so a wait on the GPU in the CPU tail
-// can't end a ladder whose median work is still far under the budget.
+// A capacity ladder stops on the frame cost the report charges.
 const isSlow = (r: QueuedRun | null | undefined, result: any) =>
   Math.max(result.frames?.interval?.p50 ?? 0, result.frames?.cpu?.p50 ?? 0) > EARLY_STOP_MS || (!!r?.capacity && frameCost(result.frames).ms > CAPACITY_STOP_MS);
 

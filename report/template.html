@@ -413,7 +413,7 @@ const ABOUT = {
   k9: '1,000 spinning meshes under a game HUD drawn with the engine\'s own 2D stack: panels, 50 atlas icons, 30 labels whose text changes every frame, and a ladder of nameplates (icon, health bar, label) that all move every frame. Naive is the engine\'s default way to build this HUD; optimized is its first-party batching path for the same HUD, where one exists. The meshes under it are the same on both paths.',
 };
 const METRICS = {
-  frameCost: { label: 'Frame cost', long: 'frame cost — the largest of CPU p95, GPU p95 and the median time between frames, with the CPU tail charged at most twice the CPU median', get: (c) => c.frameCost?.med },
+  frameCost: { label: 'Frame cost', long: 'frame cost — the largest of CPU p95, GPU p95 and the median time between frames', get: (c) => c.frameCost?.med },
   interval: { label: 'Interval', long: 'frame interval p50 — real throughput where the browser is uncapped', get: (c) => c.interval?.p50?.med },
   cpu: { label: 'CPU', long: 'CPU time p50 — JavaScript inside the engine per frame', get: (c) => c.cpu?.p50?.med },
   gpu: { label: 'GPU', long: 'GPU busy time p50 — the time the GPU spent in the frame\'s passes, with overlapping passes counted once', get: (c) => c.gpu?.p50?.med },
@@ -666,16 +666,15 @@ function dotPlot(host, rows, engines) {
 function statusSpan(st) {
   return h('span', { class: `st${st.bad ? ' bad' : ''}`, title: st.title }, st.text);
 }
-const ADJUSTED = 'CPU tail charged at twice the CPU median: an uncapped page that runs ahead of the GPU blocks inside the render call, and that wait is not work';
-const adjMark = (on, title = ADJUSTED) => (on ? h('span', { class: 'mark', title }, '†') : null);
-const naiveMark = (on) => (on ? h('span', { class: 'mark', title: AS_NAIVE }, '=') : null);
+const FROM_NAIVE = 'Naive path: it beats this engine\'s optimized path here, or the engine has no separate optimized path';
+const naiveMark = (on) => (on ? h('span', { class: 'mark', title: FROM_NAIVE }, '=') : null);
 function cellDetail(c) {
   const g = c.gpu ?? {};
   return [
     `CPU p50 ${fmtMsU(c.cpu?.p50?.med)}, p95 ${fmtMsU(c.cpu?.p95?.med)}`,
     c.interval?.p50 ? `Time between frames p50 ${fmtMsU(c.interval.p50.med)}` : null,
     g.p50 ? `GPU p50 ${fmtMsU(g.p50.med)}${g.timed ? `, timed on ${Math.round(g.timed.med)} of ${Math.round(c.long?.frames?.med ?? 0)} frames (${fmtPct(g.coverage?.med ?? 0)})` : ''}` : null,
-    c.frameCost ? `Frame cost ${fmtMsU(c.frameCost.med)}${c.stallAdjusted ? `, unadjusted ${fmtMsU(c.frameCostRaw?.med)}` : ''}` : null,
+    c.frameCost ? `Frame cost ${fmtMsU(c.frameCost.med)}` : null,
   ].filter(Boolean).join('\n');
 }
 function valueTd(c, m) {
@@ -683,7 +682,6 @@ function valueTd(c, m) {
   if (st) return h('td', {}, statusSpan(st));
   const v = valueOf(c, m);
   return h('td', { title: cellDetail(c) }, fmtMs(v),
-    m === 'frameCost' ? adjMark(c.stallAdjusted, `${ADJUSTED}. Unadjusted: ${fmtMsU(c.frameCostRaw?.med)}`) : null,
     (m === 'gpu' || m === 'frameCost') && c.gpu?.few ? h('span', { class: 'mark', title: `GPU time rests on ${Math.round(c.gpu.timed?.med ?? 0)} timed frames` }, '‡') : null,
     c.status === 'invalid' ? h('span', { class: 'flag', title: c.error ?? 'GPU validation errors during the run' }, '!') : c.unstable ? h('span', { class: 'flag', title: `Unstable: another run of this cell failed — ${c.error ?? ''}` }, '!') : null);
 }
@@ -709,18 +707,25 @@ function renderFilters() {
 // ---------- scoreboard rows ----------
 // Each row yields, per engine, { v, text } (a number to compare) or { st } (why there is none).
 const okCell = (c) => c && (c.status === 'ok' || c.status === 'invalid');
+// An optimized row takes each engine's better path, so no engine is charged an optimized path slower than its default.
+function bestPath(r, naive, opt) {
+  if (!(naive.v > 0)) return opt;
+  if (!(opt.v > 0) || (r.higher ? naive.v > opt.v : naive.v < opt.v)) return { ...naive, fromNaive: true };
+  return opt;
+}
 function capRow(id, key, sc, v, label) {
   const d = def(sc);
   return {
     id, key, label, sub: `max ${d.levelLabel} at 60 fps`, higher: true, backends: d.backends,
-    get(b, e, be, variant = v) {
+    get(b, e, be) {
+      return v === 'naive' ? this.path(b, e, be, v) : bestPath(this, this.path(b, e, be, 'naive'), this.path(b, e, be, v));
+    },
+    path(b, e, be, variant) {
       const levels = levelsOf(d, variant).filter((l) => l > 0);
-      const first = cell(b, e, be, sc, variant, levels[0]);
-      if (variant !== 'naive' && supports(e, be) && first?.asNaive) return { ...this.get(b, e, be, 'naive'), asNaive: true };
       const L = ladderOf(b, e, be, sc, variant);
-      if (!L || L.bound == null) return { st: stFor(first, e, be) ?? { text: 'not run', title: '' } };
-      if (L.bound === 'below') return { v: levels[0] / 2, text: `< ${fmtN(levels[0])}`, adjusted: L.adjusted };
-      return { v: L.maxAt60, text: `${L.bound === 'beyond' ? '≥ ' : ''}${fmtN(L.maxAt60)}`, adjusted: L.adjusted };
+      if (!L || L.bound == null) return { st: stFor(cell(b, e, be, sc, variant, levels[0]), e, be) ?? { text: 'not run', title: '' } };
+      if (L.bound === 'below') return { v: levels[0] / 2, text: `< ${fmtN(levels[0])}` };
+      return { v: L.maxAt60, text: `${L.bound === 'beyond' ? '≥ ' : ''}${fmtN(L.maxAt60)}`, lowerBound: L.bound === 'beyond' };
     },
   };
 }
@@ -728,13 +733,14 @@ function cellRow(id, key, sc, v, level, label, sub, pick, fmt = fmtMsU, higher =
   return {
     id, key, label, sub, higher, backends: def(sc).backends,
     get(b, e, be) {
-      const own = cell(b, e, be, sc, v, level);
-      const asNaive = v !== 'naive' && supports(e, be) && !!own?.asNaive;
-      const c = asNaive ? cell(b, e, be, sc, 'naive', level) : own;
+      return v === 'naive' ? this.path(b, e, be, v) : bestPath(this, this.path(b, e, be, 'naive'), this.path(b, e, be, v));
+    },
+    path(b, e, be, variant) {
+      const c = cell(b, e, be, sc, variant, level);
       const st = stFor(c, e, be);
       if (st) return { st };
       const val = pick(c, b, e, be);
-      return val == null || !isFinite(val) ? { st: { text: '—', title: 'not measured in this browser' } } : { v: val, text: fmt(val), adjusted: pick === cost && !!c.frameCost && c.stallAdjusted, asNaive };
+      return val == null || !isFinite(val) ? { st: { text: '—', title: 'not measured in this browser' } } : { v: val, text: fmt(val) };
     },
   };
 }
@@ -795,7 +801,7 @@ function go(id) {
     document.getElementById(`s-${id}`)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   };
 }
-const starTd = (x, e, text, pct) => h('td', { class: 'best', style: `--c:${ENG[e].color}` }, h('span', { class: 'star', title: 'Best in this row' }, '★'), text, h('span', { class: 'meter', 'aria-hidden': 'true' }, h('i', { style: `width:${pct}%;background:${ENG[e].color}` })));
+const starTd = (x, e, text, pct) => h('td', { class: 'best', style: `--c:${ENG[e].color}` }, h('span', { class: 'star', title: x?.lowerBound ? 'Best in this row, at the top of its ladder: a lower bound' : 'Best in this row' }, '★'), text, h('span', { class: 'meter', 'aria-hidden': 'true' }, h('i', { style: `width:${pct}%;background:${ENG[e].color}` })));
 // How far behind the best, in the row's own direction.
 function behind(r, rel) {
   const k = 1 / rel;
@@ -809,10 +815,10 @@ function verdict(r) {
   const tied = ranked.filter(isWin).length > 1;
   const rows = ranked.map((x) => {
     const name = h('span', { class: 'nm' }, h('span', { class: 'dotkey', style: `background:${ENG[x.e].color}` }), ENG[x.e].label);
-    if (x.unranked) return h('div', { class: 'v-row', title: OWN.title }, name, h('span', { class: 'track' }, h('i', { style: `width:${Math.min(100, Math.max(1, (x.v / max) * 100))}%;background:${ENG[x.e].color}` })), h('span', { class: 'num' }, x.text, adjMark(x.adjusted), naiveMark(x.asNaive), h('small', {}, `${OWN.text}, not ranked`)));
+    if (x.unranked) return h('div', { class: 'v-row', title: OWN.title }, name, h('span', { class: 'track' }, h('i', { style: `width:${Math.min(100, Math.max(1, (x.v / max) * 100))}%;background:${ENG[x.e].color}` })), h('span', { class: 'num' }, x.text, naiveMark(x.fromNaive), h('small', {}, `${OWN.text}, not ranked`)));
     if (!(x.rel > 0)) return h('div', { class: 'v-row' }, name, h('span', { class: 'why' }, statusSpan(x.st ?? { text: '—', title: '' })));
     const win = isWin(x);
-    return h('div', { class: `v-row${win ? ' win' : ''}` }, name, h('span', { class: 'track' }, h('i', { style: `width:${Math.max(1, (x.v / max) * 100)}%;background:${ENG[x.e].color}` })), h('span', { class: 'num' }, x.text, adjMark(x.adjusted), naiveMark(x.asNaive), h('small', {}, win ? (tied ? 'Tied' : 'Winner') : behind(r, x.rel))));
+    return h('div', { class: `v-row${win ? ' win' : ''}` }, name, h('span', { class: 'track' }, h('i', { style: `width:${Math.max(1, (x.v / max) * 100)}%;background:${ENG[x.e].color}` })), h('span', { class: 'num' }, x.text, naiveMark(x.fromNaive), h('small', {}, win ? `${tied ? 'Tied' : 'Winner'}${x.lowerBound ? ', at the ladder top' : ''}` : behind(r, x.rel))));
   });
   return h('div', { class: 'verdict' }, h('div', { class: 'v-head' }, h('div', {}, h('b', {}, r.label), h('small', {}, r.sub)), h('span', { class: 'dir', title: r.higher ? 'Longer bar wins' : 'Shorter bar wins' }, dirText(r))), h('div', { class: 'v-rows' }, rows));
 }
@@ -840,7 +846,7 @@ function evalRow(r, b, be) {
 }
 
 function renderBoard() {
-  $('#board-sub').textContent = `${state.browser}, ${state.backend === 'webgpu' ? 'WebGPU' : 'WebGL2'}. Capacity rows show the largest load each engine sustains inside a 60 fps frame, interpolated from frame cost: the largest of CPU p95, GPU p95 and the median time between frames, with the CPU tail charged at most twice the CPU median, because an uncapped page that runs ahead of the GPU periodically blocks inside the render call and that wait is not work. A † marks a result that rule changed, and the cell's hover text has the unadjusted value. Optimized rows compare each engine's best first-party path. An = marks an engine with no separate optimized path: its default path is its best, so its naive result stands there. The other rows are costs. Each row says which direction is better and stars its winner; results within 5% of the best count as a tie. Click a test to jump to it.`;
+  $('#board-sub').textContent = `${state.browser}, ${state.backend === 'webgpu' ? 'WebGPU' : 'WebGL2'}. Capacity rows show the largest load each engine sustains inside a 60 fps frame, interpolated from frame cost: the largest of CPU p95, GPU p95 and the median time between frames. Optimized rows take each engine's better result of its naive and optimized paths; an = marks a row where that is the naive path. A ≥ marks a load at the top of its ladder, a lower bound. The other rows are costs. Each row says which direction is better and stars its winner; results within 5% of the best count as a tie. Click a test to jump to it.`;
   const t = $('#board');
   t.replaceChildren(h('thead', {}, h('tr', {}, h('th', {}, 'Test'), MAIN.map((e) => h('th', {}, h('span', { class: 'dotkey', style: `background:${ENG[e].color}` }), ENG[e].label)))));
   const body = h('tbody');
@@ -853,13 +859,13 @@ function renderBoard() {
     const tr = h('tr', {}, h('td', {}, h('div', { class: 'scen-title-cell' }, h('span', {}, h('span', { class: 'keytag' }, r.key), h('a', { href: `#${gid(r)}`, onclick: go(gid(r)) }, r.label)), h('small', {}, h('span', { class: 'dirtxt' }, dirText(r)), ` · ${r.sub}`))));
     entries.forEach((x, i) => {
       if (x.st) return tr.append(h('td', {}, statusSpan(x.st)));
-      if (x.unranked) return tr.append(h('td', {}, x.text, adjMark(x.adjusted), naiveMark(x.asNaive), h('span', { class: 'pill', title: OWN.title }, OWN.text)));
+      if (x.unranked) return tr.append(h('td', {}, x.text, naiveMark(x.fromNaive), h('span', { class: 'pill', title: OWN.title }, OWN.text)));
       const pct = Math.round(x.rel * 100);
       if (isWin(x)) {
         wins[i]++;
-        return tr.append(starTd(x, MAIN[i], [x.text, adjMark(x.adjusted), naiveMark(x.asNaive)], pct));
+        return tr.append(starTd(x, MAIN[i], [x.text, naiveMark(x.fromNaive)], pct));
       }
-      tr.append(h('td', {}, x.text, adjMark(x.adjusted), naiveMark(x.asNaive), h('span', { class: 'meter', 'aria-hidden': 'true' }, h('i', { style: `width:${pct}%;background:${ENG[MAIN[i]].color}` }))));
+      tr.append(h('td', {}, x.text, naiveMark(x.fromNaive), h('span', { class: 'meter', 'aria-hidden': 'true' }, h('i', { style: `width:${pct}%;background:${ENG[MAIN[i]].color}` }))));
     });
     body.append(tr);
   }
@@ -882,7 +888,7 @@ function renderProfiles() {
   $('#prof-note').replaceChildren(
     h('summary', {}, h('span', { class: 'i', 'aria-hidden': 'true' }, 'ℹ'), 'How the pick is made, and what it leaves out'),
     h('ul', {},
-      h('li', {}, 'Each scoreboard row scores an engine against the best engine in that row on a log scale: equal to the best is 1, twice as slow (or half the capacity) is 0.7, ten times or worse is 0. A test the engine cannot run scores 0; in an optimized row an engine with no separate optimized path takes its naive result.'),
+      h('li', {}, 'Each scoreboard row scores an engine against the best engine in that row on a log scale: equal to the best is 1, twice as slow (or half the capacity) is 0.7, ten times or worse is 0. A test the engine cannot run scores 0; in an optimized row every engine takes the better of its naive and optimized results.'),
       h('li', {}, 'Each kind of app is a weighted average of the rows listed under it. The choice of rows and the weights are this report\'s judgement, not a standard: different weights give different picks.'),
       h('li', {}, 'three.js has no UI layer, so the HUD rows score 0 for it. Its hand-written batcher is shown in the scoreboard, unranked.'),
       h('li', {}, `It only knows what was measured: speed, size and whether a feature exists, on one Apple M1 Pro, ${timingLoadsText(state.browser)}. The picks change with the browser and backend selected above, and will differ on other GPUs and operating systems.`),
@@ -989,7 +995,7 @@ function renderConformance() {
     seen.add(base + why);
     items.push(h('li', {}, h('b', {}, `${base}: `), why));
   }
-  $('#reasons').replaceChildren(h('li', { style: 'list-style:none;margin-left:-18px' }, '✓ rendered · = no separate optimized path, the naive result stands · – not applicable · ✗ failed · ! rendered, but with GPU validation errors or a failed repeat · … skipped, an earlier step was already over 100 ms per frame'), ...items);
+  $('#reasons').replaceChildren(h('li', { style: 'list-style:none;margin-left:-18px' }, '✓ rendered · = no separate optimized path, the naive result stands in the optimized row · – not applicable · ✗ failed · ! rendered, but with GPU validation errors or a failed repeat · … skipped, an earlier step was already over 100 ms per frame'), ...items);
 }
 
 // ---------- test cards ----------
@@ -1055,7 +1061,7 @@ function scenarioCard(d) {
     const tb = h('tbody');
     for (const e of engines) {
       const L = ladderOf(b, e, be, d.id, v);
-      tb.append(h('tr', {}, engTd(e), levels.map((lv) => td(e, lv)), h('td', {}, !L || L.bound == null ? '—' : L.bound === 'below' ? `< ${fmtN(ladder[0])}` : `${L.bound === 'beyond' ? '≥ ' : ''}${fmtN(L.maxAt60)}`, adjMark(L?.adjusted))));
+      tb.append(h('tr', {}, engTd(e), levels.map((lv) => td(e, lv)), h('td', {}, !L || L.bound == null ? '—' : L.bound === 'below' ? `< ${fmtN(ladder[0])}` : `${L.bound === 'beyond' ? '≥ ' : ''}${fmtN(L.maxAt60)}`)));
     }
     table.append(tb);
     side.append(table);
@@ -1290,11 +1296,11 @@ function renderMethod() {
   const P = (html) => { const p = h('p'); p.innerHTML = html; return p; };
   m.replaceChildren(
     P('<b>One harness, every engine.</b> Every run is a fresh page load. The harness owns the only <code>requestAnimationFrame</code> loop, advances scene data with a fixed 1/60 s step, or pose by pose on the two moving-camera tests, and calls the engine for exactly one update-and-render. Scene data — geometry, transforms, lights, materials, camera, HUD layout — is generated once by a seeded RNG and handed to each engine as plain arrays, so frame <i>k</i> is the same scene everywhere.'),
-    P('<b>Measured, not reported.</b> Before any engine loads, the harness patches the WebGPU prototypes: it adds <code>timestamp-query</code> to the device, writes timestamps around every render and compute pass, and reads them back asynchronously. GPU time is busy time: the union of the frame\'s pass intervals, so idle gaps between submits do not count and passes that overlap count once. Not every frame resolves its timestamps: each cell\'s hover text says how many frames were timed, and a ‡ marks GPU figures that rest on fewer than 30. Frame cost is the largest of CPU p95, GPU p95 and the median time between frames, with the CPU tail charged at most twice the CPU median, because an uncapped page that runs ahead of the GPU periodically blocks inside the render call and that wait is not work. Cells the rule changed carry a † and their unadjusted value in the hover text. The time between frames catches time spent in neither the page\'s JavaScript nor the GPU\'s passes, such as work the browser\'s GPU process does for the page; in Safari, which is capped at the display rate, it counts only above 20 ms. A separate counters run wraps the hot calls, including draws inside render bundles, indirect draws and WebGL multi-draw, and tracks every buffer and texture allocation; on WebGL2, where sizes are not visible, it counts live buffers and textures instead. JS heap growth is read after a forced garbage collection before each snapshot. Every engine picks the same 64 points, and each is scored on how many of them return the object most engines returned.'),
+    P('<b>Measured, not reported.</b> Before any engine loads, the harness patches the WebGPU prototypes: it adds <code>timestamp-query</code> to the device, writes timestamps around every render and compute pass, and reads them back asynchronously. GPU time is busy time: the union of the frame\'s pass intervals, so idle gaps between submits do not count and passes that overlap count once. Not every frame resolves its timestamps: each cell\'s hover text says how many frames were timed, and a ‡ marks GPU figures that rest on fewer than 30. Frame cost is the largest of CPU p95, GPU p95 and the median time between frames. A frame starts only once the frame before last has finished on the GPU (<code>onSubmittedWorkDone</code> on WebGPU, a fence on WebGL2), so an uncapped page never runs ahead and blocks inside an engine\'s render call: the CPU tail is engine work and is charged in full. The time between frames catches time spent in neither the page\'s JavaScript nor the GPU\'s passes, such as work the browser\'s GPU process does for the page; in Safari, which is capped at the display rate, it counts only above 20 ms. A separate counters run wraps the hot calls, including draws inside render bundles, indirect draws (whose arguments it reads back, so their triangles count) and WebGL multi-draw, and tracks every buffer and texture allocation; on WebGL2, where sizes are not visible, it counts live buffers and textures instead. JS heap growth is read after a forced garbage collection before each snapshot. Every engine picks the same 64 points, and the report shows how many of them return the object most engines returned.'),
     P('<b>Capacity.</b> Ladder tests double the load until a level’s frame cost passes 18 ms, one level past the 16.7 ms budget, and skip the levels above it for the rest of the session. The capacity is interpolated on a log-log scale between the last level inside the budget and the first one over it, from each level’s median frame cost, so it is accurate to within one doubling. Any test, ladder or not, also skips its higher levels once a level’s frame interval or CPU median passes 100 ms. Picks are timed one at a time after the frame measurement, three passes over 64 fixed points.'),
-    P('<b>Protocol.</b> Warm-up runs at least 90 frames and 1.5 s and continues until no new GPU pipeline has been created for 30 frames. The measurement then covers at least 240 frames and 3 s (600 frames and 10 s for the churn test). Sponza and the large world move the camera through 60 fixed poses: warm-up visits every pose first and the measurement covers whole laps, so every engine and browser is timed on the same views. Engine order is shuffled within each block of the same test, path, backend and level, a fixed canary cell reruns periodically to measure run-to-run spread, and short prime runs replay at the start of every browser launch. A run in another browser that issues fewer than half of Chrome’s draw calls for the same cell is marked failed, and so is a counters run that draws under 98% of the scene’s triangles in a test with every object in view, except where draws are indirect.'),
+    P('<b>Protocol.</b> Warm-up runs at least 90 frames and 1.5 s and continues until no new GPU pipeline has been created for 30 frames. The measurement then covers at least 240 frames and 3 s (600 frames and 10 s for the churn test). Sponza and the large world move the camera through 60 fixed poses: warm-up visits every pose first and the measurement covers whole laps, so every engine and browser is timed on the same views. Engine order is shuffled within each block of the same test, path, backend and level, a fixed canary cell reruns periodically to measure run-to-run spread, and short prime runs replay at the start of every browser launch. A run in another browser that issues fewer than half of Chrome’s draw calls for the same cell is marked failed, and so is a counters run that draws under 98% of the scene’s triangles in a test with every object in view; indirect draws count with the triangles read back from their arguments.'),
     P('<b>Sessions and loads.</b> The report reads one benchmark session per browser: the latest one that was not a smoke test or a partial <code>--only</code> rerun, unless sessions are named with <code>npm run report -- --sessions</code>, which pools their loads into the same cells even if they ran under different conditions. A session loads each cell once per timing pass, one pass in the quick profile and three in the full profile with a fresh engine order each time, and once more for a counters run. A timing figure is the median of the cell’s timing loads. Load and startup times take the fastest load instead, and later loads often find their shaders already compiled, so with several loads these read closer to a warm start. The counters run supplies draw-call and allocation counts, pick agreement and the screenshots, never timings: it wraps every hot call and, outside the churn test, measures a shorter window. A ladder that stops lower in a later pass leaves a few cells with fewer loads than the profile asks for; the Browsers line below gives the counts.'),
-    P('<b>Fairness.</b> 1920×1080 device pixels, 4× MSAA, ACES tone mapping and sRGB output on every engine; opaque canvases; production builds only. Light intensities were calibrated so screenshots match. “Naive” is what a developer following the engine’s getting-started docs writes; “optimized” is the engine’s best first-party path for the workload, named under each chart. Only first-party packages are used. An engine with no separate optimized path is measured on its default path there; a test counts as not applicable only where the engine cannot run it at all. three.js is measured as WebGPURenderer on WebGPU and as the classic WebGLRenderer on WebGL2.'),
+    P('<b>Fairness.</b> 1920×1080 device pixels, 4× MSAA, ACES tone mapping and sRGB output on every engine; opaque canvases; production builds only. Light intensities were calibrated so screenshots match. “Naive” is what a developer following the engine’s getting-started docs writes; “optimized” is the engine’s best first-party path for the workload, named under each chart. Only first-party packages are used. Optimized rows take each engine’s better result of its two paths, so no engine is charged an optimized path slower than its default; a test counts as not applicable only where the engine cannot run it at all. three.js is measured as WebGPURenderer on WebGPU and as the classic WebGLRenderer on WebGL2.'),
     P(`<b>Browsers.</b> ${bl.map((x) => x.replace(/&/g, '&amp;').replace(/</g, '&lt;')).join('<br>')}`),
     P('<b>Caveats.</b> One machine: an Apple M1 Pro laptop on AC power, where Metal sits under every WebGPU implementation. Discrete GPUs, Windows (D3D12) and Android (Vulkan) will rank differently. Safari cannot be uncapped, so its interval shows the display rate and CPU and GPU times carry the comparison. PixiJS 3D is a 0.1 release and Babylon Lite is weeks old: both are moving fast, and all versions are pinned. The use-case index reflects this report’s weights and a log-scaled score, not a universal ranking; its limits are listed above the table.'),
   );

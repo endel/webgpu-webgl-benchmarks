@@ -20,10 +20,20 @@ test('render guard counts a missing triangle counter as nothing drawn', () => {
   assert.match(renderGuard('naive', { draws: 103 }, K2).error ?? '', /incomplete render: 0%/);
 });
 
-test('render guard notes automatic batching and skips indirect draws', () => {
-  const r = renderGuard('naive', { draws: 130, triangles: 13, indirectDraws: 128 }, K2);
-  assert.equal(r.note, 'batches automatically: 130 draw calls for 4,000 objects');
-  assert.equal(r.error, undefined);
+test('render guard counts the triangles read back from indirect draws', () => {
+  // PixiJS 3D on Chrome WebGPU: 128 of its 130 draws are indirect, replayed from a render bundle.
+  const ok = renderGuard('naive', { draws: 130, triangles: 13, indirectDraws: 128, indirectTriangles: 995823, indirectFrames: 60 }, K2);
+  assert.deepEqual(ok, { note: 'batches automatically: 130 draw calls for 4,000 objects' });
+  const partial = renderGuard('naive', { draws: 130, triangles: 13, indirectDraws: 128, indirectTriangles: 400000, indirectFrames: 60 }, K2);
+  assert.match(partial.error ?? '', /incomplete render: 40%/);
+});
+
+test('render guard notes a run whose indirect arguments were not read back instead of judging it', () => {
+  for (const counters of [{ draws: 130, triangles: 13, indirectDraws: 128 }, { draws: 130, triangles: 13, indirectDraws: 128, indirectTriangles: 5, indirectFrames: 60, indirectUnreadable: 2 }]) {
+    const r = renderGuard('naive', counters, K2);
+    assert.equal(r.error, undefined);
+    assert.match(r.note ?? '', /render guard not applied/);
+  }
 });
 
 test('render guard notes batching on the naive path only', () => {

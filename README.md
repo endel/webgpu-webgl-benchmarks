@@ -127,12 +127,13 @@ The levels live in `src/harness/matrix.ts`.
 
 K1's bundle total is the initial chunks plus every lazy chunk reachable from the entry, whether or not a WebGPU page ever requests it. The report lists initial and lazy separately.
 
-**Capacity ladders.** K2, K6, K7 and K9 double the load until a level costs more than the 16.7 ms frame budget, then stop. The report interpolates the largest load that fits in a 60 fps frame between the last level inside the budget and the first one over it.
+**Capacity ladders.** K2, K6, K7 and K9 double the load until a level costs more than the 16.7 ms frame budget, then stop. The report interpolates the largest load that fits in a 60 fps frame between the last level inside the budget and the first one over it. A ladder that never goes over budget reads "≥" and is only a lower bound, so `npm run report` warns about it: the ladder should climb until every engine crosses the budget.
 
 **Paths.**
 - *Naive* is what a developer following the engine's getting-started docs writes.
 - *Optimized* is the engine's best first-party path for the workload. Each run records the path it used. Only first-party packages count.
-- An engine with no separate optimized path is measured on its default path. Where the workload is the same as the naive one (K8, K9) the cell fails with `N/A (as naive): …`, and the report marks it `=` and uses the engine's naive result in that row. Where the workload differs (K6's single-clip crowd) the default path runs it.
+- An optimized row takes each engine's better result of its naive and optimized paths, and marks it `=` where that is the naive one. No engine is charged an optimized path slower than its default, and every engine gets the same fallback.
+- An engine with no separate optimized path fails the optimized cell with `N/A (as naive): …` where the workload is the same as the naive one (K8, K9), so its naive result stands. Where the workload differs (K6's single-clip crowd) the default path runs it.
 - A cell fails with `N/A: …` only where the engine cannot run the workload at all (no compute API, more lights than it shades). It is reported as not applicable, with the reason, and scores zero.
 - K9's optimized variant changes only the HUD path: the engine's first-party batching for the same HUD. The meshes under it are built the same way on both paths.
 
@@ -149,7 +150,7 @@ K1's bundle total is the initial chunks plus every lazy chunk reachable from the
 ## What is measured
 
 - **CPU time:** `performance.now()` around the engine's update and render call. The shared scene simulation is timed separately and excluded.
-  - On WebGPU a frame starts only once the frame before last has finished on the GPU, so at most one frame is in flight. Without this, an uncapped browser lets JavaScript run ahead until the GPU queue is full and then blocks whichever call meets the full queue (`getCurrentTexture` or `submit`). CPU time would then measure where that wait lands: in Chrome it moved by up to 0.7 ms with the number of submits per frame, for the same work.
+  - A frame starts only once the frame before last has finished on the GPU, so at most one frame is in flight: `onSubmittedWorkDone` on WebGPU, a fence (`fenceSync`, polled between tasks) on WebGL2. Without this, an uncapped browser lets JavaScript run ahead until the GPU queue is full and then blocks whichever call meets the full queue (`getCurrentTexture` or `submit` on WebGPU, any GL call on WebGL2). CPU time would then measure where that wait lands: in Chrome it moved by up to 0.7 ms with the number of submits per frame on WebGPU, and on WebGL2 it put a 3 ms tail on a lit cube whose CPU median is 0.2 ms.
 - **GPU time:** measured by an engine-agnostic probe that patches the WebGPU prototypes before any engine loads.
   - The probe adds `timestamp-query`, writes timestamps around every pass (never mutating the engine's own descriptors) and resolves them asynchronously, so there are no stalls.
   - The report's GPU time is *busy* time: the union of the frame's pass intervals, so passes that overlap on tile-based GPUs count once and idle gaps between an engine's submits don't count.
@@ -157,18 +158,17 @@ K1's bundle total is the initial chunks plus every lazy chunk reachable from the
   - Not every frame resolves its timestamps. The report shows how many frames were timed per cell, and marks GPU figures that rest on fewer than 30 timed frames with ‡.
   - Chrome runs with vsync and the frame-rate limit off, so its frame interval reflects throughput, and GPU time is the GPU cost. Safari's capped loop stays coupled to the GPU, which makes it the cross-check for GPU-heavy scenes.
 - **Render cross-check:** any run in another browser that issues fewer than half of Chrome's draw calls for the same cell is reported as failed, in every test. A shader can fail without raising a GPU error, leaving healthy-looking timings for an empty frame.
-- **Render guard:** in the tests with every object in view (K1, K2, K7, K8, K9), a counters run that draws under 98% of the scene's triangles is reported as failed. Runs with indirect draws are exempt, since the probe can't see their triangle counts. A naive run with fewer draw calls than objects is noted as batching automatically.
+- **Render guard:** in the tests with every object in view (K1, K2, K7, K8, K9), a counters run that draws under 98% of the scene's triangles is reported as failed. Indirect draws count with the triangles read back from their arguments; a run whose arguments couldn't be read is noted as unchecked rather than judged. A naive run with fewer draw calls than objects is noted as batching automatically.
 - **Load and startup times** use the fastest repeat, since the first load of an asset hits a cold HTTP cache.
 - **Pacing:** frames over the 16.7 ms and 33.3 ms budgets and the worst frame, for CPU time and for the frame interval. K3 is judged on these.
 - **Memory growth:** JS heap and live GPU bytes at the start and end of the measurement (live buffer and texture counts on WebGL2, where sizes aren't visible). The page forces a garbage collection before each heap snapshot where the browser allows it (Chrome launched by the runner), and the report shows heap growth only for those runs.
 - **Picks:** timed one at a time after the frame measurement, three passes over 64 fixed points. The hit ids are recorded, and the report takes the majority id per point across every engine, backend and path in a browser and shows each engine's agreement with it. A point where the top answers tie has no majority and is left out.
 - **Frame interval:** real throughput where the browser is uncapped.
-- **Frame cost** = max(min(CPU p95, 2 × CPU p50), GPU p95, frame interval p50). It drives the "max N at 60 fps" figure and the runner's capacity stop.
-  - With the frame-rate limit off, a page that runs ahead of the GPU periodically blocks inside the engine's render call. That wait lands in CPU p95 and isn't work, so the CPU tail is charged at most twice the median. A level whose median is under half the budget can't be pushed over it by its tail; a level near the budget is charged its full p95.
+- **Frame cost** = max(CPU p95, GPU p95, frame interval p50). It drives the "max N at 60 fps" figure and the runner's capacity stop.
+  - With at most one frame in flight, the CPU tail is the engine's own work, hitches included, so it is charged in full.
   - The frame interval catches time spent in neither the page's JavaScript nor the GPU's passes, such as work the browser's GPU process does for the page. For most engines it matches the CPU or GPU time; at high loads Babylon Lite's frames take several times longer than either.
   - In Safari, which is capped at the display rate, the interval counts only above 20 ms.
-  - Cells and capacities the cap changed carry a † in the report. The raw CPU p50 and p95 are kept, and each cell's hover text has the unadjusted frame cost.
-- **Counters run:** a separate run that wraps the hot calls (draws, `setPipeline`, `setBindGroup`, `writeBuffer`, submits), tracks live buffer and texture bytes, and cross-checks draw counts against the engine's own stats. Draws recorded in render bundles count each time a bundle executes, indirect draws are counted separately, and WebGL2 multi-draw calls count every draw they contain.
+- **Counters run:** a separate run that wraps the hot calls (draws, `setPipeline`, `setBindGroup`, `writeBuffer`, submits), tracks live buffer and texture bytes, and cross-checks draw counts against the engine's own stats. Draws recorded in render bundles count each time a bundle executes, and WebGL2 multi-draw calls count every draw they contain. Indirect draws are counted separately, and their arguments are copied out after each pass and read back, so their instances and triangles are known too (the probe adds `COPY_SRC` to indirect buffers in counters runs only).
 - **Startup:** import, init, load, first frame and time-to-first-frame. Also JS heap and any pipelines created mid-measurement, which flag the run.
 
 **Protocol.**
