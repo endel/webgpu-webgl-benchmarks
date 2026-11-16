@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { parseArgs } from 'node:util';
 import { K4_STEPS, SCENARIOS } from '../src/harness/matrix';
+import type { Variant } from '../src/harness/types';
 import { BUDGET_MS, frameCost, gpuBusy } from '../src/harness/frame-cost';
 import { gpuSampling, heapGrowth, MIN_GPU_FRAMES, notApplicable, pickAgreement, pickMajority, renderGuard } from './report-checks';
 
@@ -331,6 +332,15 @@ for (const [k, list] of groups) {
   }
   const adjusted = pts.slice(0, i < 0 ? pts.length : i + 1).some((p) => p.adjusted);
   ladders.push({ browser, engine, backend, scenario, variant, points: pts, maxAt60, bound, adjusted });
+}
+
+// A ladder that never went over budget is only a lower bound, and engines at the same top would tie.
+for (const L of ladders) {
+  if (L.bound !== 'beyond') continue;
+  const def = SCENARIOS.find((s) => s.id === L.scenario)!;
+  const top = (def.levelsFor?.[L.variant as Variant] ?? def.levels).at(-1);
+  const why = L.maxAt60 === top ? `fits the budget at the ladder's top (${top}): extend the ladder in src/harness/matrix.ts` : `fits the budget at its highest measured level (${L.maxAt60}), below the ladder's top (${top}): rerun the levels above it`;
+  console.log(`warning: ${L.browser} ${L.engine} ${L.backend} ${L.scenario} ${L.variant} ${why}`);
 }
 
 // ---- gallery thumbnails (JPEG via macOS sips, embedded as data URIs) ----

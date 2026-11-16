@@ -127,7 +127,7 @@ The levels live in `src/harness/matrix.ts`.
 
 K1's bundle total is the initial chunks plus every lazy chunk reachable from the entry, whether or not a WebGPU page ever requests it. The report lists initial and lazy separately.
 
-**Capacity ladders.** K2, K6, K7 and K9 double the load until a level costs more than the 16.7 ms frame budget, then stop. The report interpolates the largest load that fits in a 60 fps frame between the last level inside the budget and the first one over it.
+**Capacity ladders.** K2, K6, K7 and K9 double the load until a level costs more than the 16.7 ms frame budget, then stop. The report interpolates the largest load that fits in a 60 fps frame between the last level inside the budget and the first one over it. A ladder that never goes over budget reads "≥" and is only a lower bound, so `npm run report` warns about it: the ladder should climb until every engine crosses the budget.
 
 **Paths.**
 - *Naive* is what a developer following the engine's getting-started docs writes.

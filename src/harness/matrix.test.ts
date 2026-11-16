@@ -12,7 +12,8 @@ test('K2 and K6 ladders climb past the fastest engine', () => {
   assert.deepEqual([ladder('k2', 'naive')[0], ladder('k2', 'naive').at(-1)], [500, 256000]);
   assert.deepEqual([ladder('k2', 'optimized')[0], ladder('k2', 'optimized').at(-1)], [4000, 256000]);
   assert.deepEqual([ladder('k6', 'naive')[0], ladder('k6', 'naive').at(-1)], [25, 3200]);
-  assert.deepEqual([ladder('k6', 'optimized')[0], ladder('k6', 'optimized').at(-1)], [200, 3200]);
+  // Both Babylons already sat at the old 3,200 top, so a tie there hid how far ahead a baked crowd is.
+  assert.deepEqual([ladder('k6', 'optimized')[0], ladder('k6', 'optimized').at(-1)], [200, 25600]);
 });
 
 test('K9 has an optimized HUD ladder without the no-HUD level', () => {

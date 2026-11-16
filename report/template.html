@@ -720,7 +720,7 @@ function capRow(id, key, sc, v, label) {
       const L = ladderOf(b, e, be, sc, variant);
       if (!L || L.bound == null) return { st: stFor(first, e, be) ?? { text: 'not run', title: '' } };
       if (L.bound === 'below') return { v: levels[0] / 2, text: `< ${fmtN(levels[0])}`, adjusted: L.adjusted };
-      return { v: L.maxAt60, text: `${L.bound === 'beyond' ? '≥ ' : ''}${fmtN(L.maxAt60)}`, adjusted: L.adjusted };
+      return { v: L.maxAt60, text: `${L.bound === 'beyond' ? '≥ ' : ''}${fmtN(L.maxAt60)}`, adjusted: L.adjusted, lowerBound: L.bound === 'beyond' };
     },
   };
 }
@@ -795,7 +795,7 @@ function go(id) {
     document.getElementById(`s-${id}`)?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
   };
 }
-const starTd = (x, e, text, pct) => h('td', { class: 'best', style: `--c:${ENG[e].color}` }, h('span', { class: 'star', title: 'Best in this row' }, '★'), text, h('span', { class: 'meter', 'aria-hidden': 'true' }, h('i', { style: `width:${pct}%;background:${ENG[e].color}` })));
+const starTd = (x, e, text, pct) => h('td', { class: 'best', style: `--c:${ENG[e].color}` }, h('span', { class: 'star', title: x?.lowerBound ? 'Best in this row, at the top of its ladder: a lower bound' : 'Best in this row' }, '★'), text, h('span', { class: 'meter', 'aria-hidden': 'true' }, h('i', { style: `width:${pct}%;background:${ENG[e].color}` })));
 // How far behind the best, in the row's own direction.
 function behind(r, rel) {
   const k = 1 / rel;
@@ -812,7 +812,7 @@ function verdict(r) {
     if (x.unranked) return h('div', { class: 'v-row', title: OWN.title }, name, h('span', { class: 'track' }, h('i', { style: `width:${Math.min(100, Math.max(1, (x.v / max) * 100))}%;background:${ENG[x.e].color}` })), h('span', { class: 'num' }, x.text, adjMark(x.adjusted), naiveMark(x.asNaive), h('small', {}, `${OWN.text}, not ranked`)));
     if (!(x.rel > 0)) return h('div', { class: 'v-row' }, name, h('span', { class: 'why' }, statusSpan(x.st ?? { text: '—', title: '' })));
     const win = isWin(x);
-    return h('div', { class: `v-row${win ? ' win' : ''}` }, name, h('span', { class: 'track' }, h('i', { style: `width:${Math.max(1, (x.v / max) * 100)}%;background:${ENG[x.e].color}` })), h('span', { class: 'num' }, x.text, adjMark(x.adjusted), naiveMark(x.asNaive), h('small', {}, win ? (tied ? 'Tied' : 'Winner') : behind(r, x.rel))));
+    return h('div', { class: `v-row${win ? ' win' : ''}` }, name, h('span', { class: 'track' }, h('i', { style: `width:${Math.max(1, (x.v / max) * 100)}%;background:${ENG[x.e].color}` })), h('span', { class: 'num' }, x.text, adjMark(x.adjusted), naiveMark(x.asNaive), h('small', {}, win ? `${tied ? 'Tied' : 'Winner'}${x.lowerBound ? ', at the ladder top' : ''}` : behind(r, x.rel))));
   });
   return h('div', { class: 'verdict' }, h('div', { class: 'v-head' }, h('div', {}, h('b', {}, r.label), h('small', {}, r.sub)), h('span', { class: 'dir', title: r.higher ? 'Longer bar wins' : 'Shorter bar wins' }, dirText(r))), h('div', { class: 'v-rows' }, rows));
 }
@@ -840,7 +840,7 @@ function evalRow(r, b, be) {
 }
 
 function renderBoard() {
-  $('#board-sub').textContent = `${state.browser}, ${state.backend === 'webgpu' ? 'WebGPU' : 'WebGL2'}. Capacity rows show the largest load each engine sustains inside a 60 fps frame, interpolated from frame cost: the largest of CPU p95, GPU p95 and the median time between frames, with the CPU tail charged at most twice the CPU median, because an uncapped page that runs ahead of the GPU periodically blocks inside the render call and that wait is not work. A † marks a result that rule changed, and the cell's hover text has the unadjusted value. Optimized rows compare each engine's best first-party path. An = marks an engine with no separate optimized path: its default path is its best, so its naive result stands there. The other rows are costs. Each row says which direction is better and stars its winner; results within 5% of the best count as a tie. Click a test to jump to it.`;
+  $('#board-sub').textContent = `${state.browser}, ${state.backend === 'webgpu' ? 'WebGPU' : 'WebGL2'}. Capacity rows show the largest load each engine sustains inside a 60 fps frame, interpolated from frame cost: the largest of CPU p95, GPU p95 and the median time between frames, with the CPU tail charged at most twice the CPU median, because an uncapped page that runs ahead of the GPU periodically blocks inside the render call and that wait is not work. A † marks a result that rule changed, and the cell's hover text has the unadjusted value. Optimized rows compare each engine's best first-party path. An = marks an engine with no separate optimized path: its default path is its best, so its naive result stands there. A ≥ marks a load at the top of its ladder, a lower bound. The other rows are costs. Each row says which direction is better and stars its winner; results within 5% of the best count as a tie. Click a test to jump to it.`;
   const t = $('#board');
   t.replaceChildren(h('thead', {}, h('tr', {}, h('th', {}, 'Test'), MAIN.map((e) => h('th', {}, h('span', { class: 'dotkey', style: `background:${ENG[e].color}` }), ENG[e].label)))));
   const body = h('tbody');
