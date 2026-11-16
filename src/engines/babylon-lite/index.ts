@@ -66,7 +66,11 @@ class LiteAdapter implements EngineAdapter {
   async init(canvas: HTMLCanvasElement, opts: InitOptions): Promise<InitReport> {
     if (opts.backend !== 'webgpu') throw new Error('N/A: Babylon Lite has no WebGL2 renderer');
     enableErrorDecoding(); // errors are bare numeric codes otherwise
-    const engine = await createEngine(canvas, { msaaSamples: opts.msaa, alphaMode: 'opaque', maxDevicePixelRatio: 1 });
+    // The baked crowd keeps two texels per character in one row, so past 4,096 characters it needs more than
+    // WebGPU's default 8,192-texel limit; the device gets the adapter's maximum, as the validation error advises.
+    const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+    const requiredLimits = adapter ? { maxTextureDimension2D: adapter.limits.maxTextureDimension2D } : undefined;
+    const engine = await createEngine(canvas, { msaaSamples: opts.msaa, alphaMode: 'opaque', maxDevicePixelRatio: 1, requiredLimits });
     // createEngine sizes the backing store from the CSS box × DPR.
     setEngineSize(engine, opts.width, opts.height);
     this.ctx = { engine, scene: null!, camera: null!, sun: null };
