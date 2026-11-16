@@ -132,7 +132,8 @@ K1's bundle total is the initial chunks plus every lazy chunk reachable from the
 **Paths.**
 - *Naive* is what a developer following the engine's getting-started docs writes.
 - *Optimized* is the engine's best first-party path for the workload. Each run records the path it used. Only first-party packages count.
-- An engine with no separate optimized path is measured on its default path. Where the workload is the same as the naive one (K8, K9) the cell fails with `N/A (as naive): …`, and the report marks it `=` and uses the engine's naive result in that row. Where the workload differs (K6's single-clip crowd) the default path runs it.
+- An optimized row takes each engine's better result of its naive and optimized paths, and marks it `=` where that is the naive one. No engine is charged an optimized path slower than its default, and every engine gets the same fallback.
+- An engine with no separate optimized path fails the optimized cell with `N/A (as naive): …` where the workload is the same as the naive one (K8, K9), so its naive result stands. Where the workload differs (K6's single-clip crowd) the default path runs it.
 - A cell fails with `N/A: …` only where the engine cannot run the workload at all (no compute API, more lights than it shades). It is reported as not applicable, with the reason, and scores zero.
 - K9's optimized variant changes only the HUD path: the engine's first-party batching for the same HUD. The meshes under it are built the same way on both paths.
 
