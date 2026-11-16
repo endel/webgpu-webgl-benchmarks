@@ -194,8 +194,6 @@ for (const c of cells.values()) {
     sim: pick('frames.sim.p50'),
     stutter: pick('frames.stutter'),
     frameCost: stat(costs.map((x) => x.ms)),
-    frameCostRaw: stat(costs.map((x) => x.raw)),
-    stallAdjusted: costs.some((x) => x.stallAdjusted),
     timings: {
       ttff: pick('timings.ttffMs'),
       import: pick('timings.importMs'),
@@ -297,9 +295,7 @@ for (const list of pickGroups.values()) {
   }
 }
 
-// ---- ladders: "max N at 60 fps" from the frame cost: the larger of GPU p95 and CPU p95, with the CPU tail
-// charged at most twice the CPU median (src/harness/frame-cost.ts). A ladder is marked adjusted when that
-// cap changed any level the verdict reads, up to the first one over budget.
+// ---- ladders: "max N at 60 fps" from the frame cost (src/harness/frame-cost.ts) ----
 const ladders: any[] = [];
 const groups = new Map<string, any[]>();
 for (const c of out) {
@@ -312,7 +308,7 @@ for (const c of out) {
 for (const [k, list] of groups) {
   const [browser, engine, backend, scenario, variant] = k.split('|');
   // Level 0 is K9's no-HUD baseline, not a point on the ladder.
-  const pts = list.filter((c) => c.status === 'ok' && c.frameCost && c.level > 0).map((c) => ({ level: c.level, cost: c.frameCost.med, adjusted: c.stallAdjusted })).sort((a, b) => a.level - b.level);
+  const pts = list.filter((c) => c.status === 'ok' && c.frameCost && c.level > 0).map((c) => ({ level: c.level, cost: c.frameCost.med })).sort((a, b) => a.level - b.level);
   const i = pts.findIndex((p) => p.cost > BUDGET_MS);
   let maxAt60: number | null = null, bound: 'below' | 'within' | 'beyond' | null = null;
   if (pts.length) {
@@ -330,8 +326,7 @@ for (const [k, list] of groups) {
       }
     }
   }
-  const adjusted = pts.slice(0, i < 0 ? pts.length : i + 1).some((p) => p.adjusted);
-  ladders.push({ browser, engine, backend, scenario, variant, points: pts, maxAt60, bound, adjusted });
+  ladders.push({ browser, engine, backend, scenario, variant, points: pts, maxAt60, bound });
 }
 
 // A ladder that never went over budget is only a lower bound, and engines at the same top would tie.

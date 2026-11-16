@@ -24,6 +24,26 @@ const withTimeout = <T,>(p: Promise<T> | undefined, ms: number, msg?: string) =>
 /** 2.5× the early-stop threshold: numbers are still recorded, just from 5 frames. */
 const PATHOLOGICAL_MS = 250;
 
+/** A fence still unsignaled after this long is given up on, so a wedged context can't hang the loop. */
+const FENCE_WAIT_MS = 1000;
+let taskChannel: MessageChannel | undefined;
+const nextTask = () =>
+  new Promise<void>((resolve) => {
+    taskChannel ??= new MessageChannel();
+    taskChannel.port1.onmessage = () => resolve();
+    taskChannel.port2.postMessage(null);
+  });
+
+/**
+ * WebGL2's counterpart of onSubmittedWorkDone. A fence's status only updates between tasks, so it is
+ * polled one message task at a time (no timer clamping); a lost context reports no status and ends the wait.
+ */
+async function fenceSignaled(gl: WebGL2RenderingContext, sync: WebGLSync) {
+  const until = performance.now() + FENCE_WAIT_MS;
+  while (gl.getSyncParameter(sync, gl.SYNC_STATUS) === gl.UNSIGNALED && performance.now() < until) await nextTask();
+  gl.deleteSync(sync);
+}
+
 const ENGINES: Record<EngineId, () => Promise<{ createAdapter(): EngineAdapter }>> = {
   three: () => import('../engines/three/index'),
   'three-classic': () => import('../engines/three-classic/index'),
@@ -191,19 +211,27 @@ async function main() {
         clearInterval(guard);
         reject(new Error(`stalled: no animation frame for ${STALL_MS / 1000} s (window occluded or GPU hang)`));
       }, 1000);
-      // At most one frame of GPU work in flight when a frame starts. Uncapped, the browser lets JavaScript
-      // run ahead until the GPU queue is full, then blocks whichever call meets the full queue
-      // (getCurrentTexture, submit), so the CPU time would measure where that wait lands, not engine work.
+      // At most one frame of GPU work in flight when a frame starts, on both backends. Uncapped, the browser
+      // lets JavaScript run ahead until the GPU queue is full, then blocks whichever call meets the full queue
+      // (getCurrentTexture or submit, any GL call), so CPU time would measure where that wait lands, not work.
       const queue = params.backend === 'webgpu' ? wgpu?.device?.queue : undefined;
+      const gl = params.backend === 'webgl2' ? wgl?.gl : undefined;
       let previous: Promise<undefined> | undefined;
       let beforePrevious: Promise<undefined> | undefined;
+      const fences: WebGLSync[] = [];
       const tick = async (ts: number) => {
         lastTick = performance.now();
         try {
           await beforePrevious;
+          if (gl && fences.length >= 2) await fenceSignaled(gl, fences.shift()!);
           const rec = renderOne();
           beforePrevious = previous;
           previous = queue?.onSubmittedWorkDone();
+          const fence = gl?.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+          if (fence) {
+            fences.push(fence);
+            gl!.flush();
+          }
           rec.ts = ts;
           if (start < 0) start = ts;
           recs.push(rec);
