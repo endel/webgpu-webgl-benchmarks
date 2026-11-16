@@ -2,6 +2,7 @@ import type { Plugin } from 'vite';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { frameCost } from '../src/harness/frame-cost';
 
 // Bench API, mounted on both the dev and preview servers:
 //   GET  /api/next?session=   → { url } of the next queued run, or { done: true }
@@ -29,14 +30,16 @@ export interface QueuedRun {
 /** Stalls and watchdog timeouts can be transient (occluded window, GPU hiccup), so they get one retry. */
 const isTransient = (r: any) => r.status === 'stalled' || r.status === 'timeout';
 
+const withRunId = (r: QueuedRun, runId: string): QueuedRun => ({ ...r, runId, url: r.url.replace(/([?&]runId=)[^&]*/, `$1${runId}`) });
+
 const EARLY_STOP_MS = 100;
 /** One level past the 16.7 ms budget is kept, so the report can interpolate the capacity. */
 const CAPACITY_STOP_MS = 18;
 
-/** p95 frame cost: the larger of CPU and GPU time, which is independent of vsync. */
-const frameCost = (result: any) => Math.max(result.frames?.cpu?.p95 ?? 0, result.frames?.gpu?.p95 ?? 0);
-const isSlow = (r: QueuedRun | undefined, result: any) =>
-  Math.max(result.frames?.interval?.p50 ?? 0, result.frames?.cpu?.p50 ?? 0) > EARLY_STOP_MS || (!!r?.capacity && frameCost(result) > CAPACITY_STOP_MS);
+// A capacity ladder stops on the frame cost the report charges, so a wait on the GPU in the CPU tail
+// can't end a ladder whose median work is still far under the budget.
+const isSlow = (r: QueuedRun | null | undefined, result: any) =>
+  Math.max(result.frames?.interval?.p50 ?? 0, result.frames?.cpu?.p50 ?? 0) > EARLY_STOP_MS || (!!r?.capacity && frameCost(result.frames).ms > CAPACITY_STOP_MS);
 
 export class BenchSession {
   next = 0;
@@ -50,16 +53,26 @@ export class BenchSession {
   /** Set when /api/next held back a run so the runner can relaunch a fresh browser. */
   restartPending = false;
   private sinceLaunch = 0;
+  /** The queue's prime runs (one k1 per engine), replayed at the start of every launch instead of once. */
+  private primes: QueuedRun[];
+  private priming: QueuedRun[] = [];
+  /** Consecutive launches on which a prime's page never loaded, by ladder. */
+  private primeStalls = new Map<string, number>();
 
   nextGeneration() {
     this.sinceLaunch = 0;
     this.restartPending = false;
-    return ++this.generation;
+    this.generation++;
+    // Measured cost depends on a graphics context's position in the browser process (the first is fast,
+    // the second slow) and only a new process resets it, so every launch spends those positions on primes.
+    this.priming = this.primes.map((p) => withRunId(p, `${p.runId}g${this.generation}`));
+    return this.generation;
   }
 
   /** True when the browser is due for recycling — checked before handing out the next run. */
   dueForRestart() {
-    if (!this.restartEvery || this.sinceLaunch < this.restartEvery) return false;
+    // With nothing left to serve, a relaunch would only replay the primes.
+    if (!this.restartEvery || this.sinceLaunch < this.restartEvery || !this.queue.slice(this.next).some((r) => this.servable(r))) return false;
     this.restartPending = true;
     return true;
   }
@@ -86,12 +99,17 @@ export class BenchSession {
     readonly log: (msg: string) => void = console.log,
   ) {
     mkdirSync(join(dir, 'shots'), { recursive: true });
+    this.primes = queue.filter((r) => r.tag === 'prime');
   }
 
   private isStopped(r: QueuedRun) {
     const above = this.stopAbove.get(r.ladder);
     const from = this.stopFrom.get(r.ladder);
     return (above !== undefined && r.level > above) || (from !== undefined && r.level >= from);
+  }
+
+  private servable(r: QueuedRun) {
+    return r.tag !== 'prime' && !this.recorded.has(r.runId) && (r.tag === 'canary' || !this.isStopped(r));
   }
 
   private lower(map: Map<string, number>, ladder: string, level: number) {
@@ -106,6 +124,8 @@ export class BenchSession {
       if (q && !q.tag && !q.retryOf) this.enqueueRetry(q);
     }
     for (const res of results) {
+      // Launches continue the stopped session's count, so prime run ids stay unique.
+      this.generation = Math.max(this.generation, Number(res.gen) || 0);
       // Skips are re-decided against the rebuilt stop state, so a flake no longer costs its ladder.
       if (!res.runId || res.status === 'skipped') continue;
       this.recorded.add(res.runId);
@@ -121,7 +141,7 @@ export class BenchSession {
   private enqueueRetry(r: QueuedRun) {
     const runId = `${r.runId}r`;
     if (this.queue.some((q) => q.runId === runId)) return;
-    this.queue.push({ ...r, runId, retryOf: r.runId, url: r.url.replace(/([?&]runId=)[^&]*/, `$1${runId}`) });
+    this.queue.push({ ...withRunId(r, runId), retryOf: r.runId });
   }
 
   private applyStops(result: any) {
@@ -136,21 +156,27 @@ export class BenchSession {
 
   take(): QueuedRun | null {
     this.lastActivity = Date.now();
+    const prime = this.priming.shift();
+    if (prime) return this.start(prime);
     while (this.next < this.queue.length) {
       const r = this.queue[this.next++];
-      if (this.recorded.has(r.runId)) continue;
+      if (r.tag === 'prime' || this.recorded.has(r.runId)) continue;
       if (r.tag !== 'canary' && this.isStopped(r)) {
         this.skipped++;
         this.append({ status: 'skipped', runId: r.runId, session: this.id, reason: 'early-stop', ladder: r.ladder, level: r.level, repeat: r.repeat, mode: r.mode });
         continue;
       }
-      this.current = r;
-      this.phase = 'navigating';
-      return r;
+      return this.start(r);
     }
     this.current = null;
     this.done = true;
     return null;
+  }
+
+  private start(r: QueuedRun) {
+    this.current = r;
+    this.phase = 'navigating';
+    return r;
   }
 
   append(obj: unknown) {
@@ -159,13 +185,14 @@ export class BenchSession {
 
   record(result: any) {
     this.lastActivity = Date.now();
-    this.sinceLaunch++;
+    const r = this.current?.runId === result.runId ? this.current : this.queue.find((q) => q.runId === result.runId);
     // The run is finished: a later watchdog relaunch must not blame it.
     if (this.current?.runId === result.runId) this.current = null;
+    // Primes don't count, so a launch always gets to real runs.
+    if (r?.tag !== 'prime') this.sinceLaunch++;
     result.browser = this.browser;
     result.receivedAt = new Date().toISOString();
     this.append(result);
-    const r = this.queue.find((q) => q.runId === result.runId);
     const bad = result.status !== 'ok';
     const slow = isSlow(r, result);
     if (bad) this.failed++;
@@ -179,6 +206,16 @@ export class BenchSession {
         ? `✗ ${label}: ${String(result.error ?? result.status).split('\n')[0]}`
         : `✓ ${label}: interval ${f?.interval?.p50 ?? '-'}ms cpu ${f?.cpu?.p50 ?? '-'}ms gpu ${f?.gpu?.p50 ?? '-'}ms${slow ? ' (early stop)' : ''}`,
     );
+    if (r?.tag !== 'prime') return;
+    // A prime that hangs would hang again after every relaunch. One still navigating never loaded its
+    // page, so the launch failed, not the prime; twice in a row and it is the prime after all.
+    const neverLoaded = isTransient(result) && String(result.error).includes('stalled at: navigating');
+    const stalls = neverLoaded ? (this.primeStalls.get(r.ladder) ?? 0) + 1 : 0;
+    this.primeStalls.set(r.ladder, stalls);
+    if (isTransient(result) && (!neverLoaded || stalls > 1)) {
+      this.primes = this.primes.filter((p) => p.ladder !== r.ladder);
+      this.log(`  dropped prime ${r.ladder} for the rest of the session`);
+    }
   }
 
   /** Watchdog: the current run never reported. */

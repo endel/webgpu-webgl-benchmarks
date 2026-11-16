@@ -27,7 +27,7 @@ if (session) {
         for (const engine of ENGINES) {
           if (!engineSupports(engine, backend)) continue;
           const a = document.createElement('a');
-          a.href = `bench.html?${toSearch({ engine, backend, scenario: s.id, variant, level: (s.levelsFor?.[variant] ?? s.levels)[s.id === 'k4' ? 3 : s.id === 'k9' ? 3 : 0], standalone: true })}`;
+          a.href = `bench.html?${toSearch({ engine, backend, scenario: s.id, variant, level: s.id === 'k9' ? 1000 : (s.levelsFor?.[variant] ?? s.levels)[s.id === 'k4' ? 3 : 0], standalone: true })}`;
           a.textContent = engine;
           cell.append(a, ' ');
         }

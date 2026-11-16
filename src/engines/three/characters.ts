@@ -5,9 +5,6 @@ import type { CharactersScene, Variant } from '../../harness/types';
 import type { Built, Ctx } from './common';
 
 export async function buildCharacters({ scene }: Ctx, d: CharactersScene, variant: Variant): Promise<Built> {
-  if (variant === 'optimized') {
-    throw new Error('N/A: three has no instanced or baked skinning with a pose per instance (an instanced SkinnedMesh shares one skeleton, so every instance plays the same frame)');
-  }
   const gltf = await new GLTFLoader().loadAsync(d.url);
   const clips = [gltf.animations[d.clip]];
   if (d.blend) clips.push(gltf.animations[d.blend.clip]);
@@ -28,6 +25,7 @@ export async function buildCharacters({ scene }: Ctx, d: CharactersScene, varian
   });
   return {
     path: `SkinnedMesh per character (SkeletonUtils.clone + AnimationMixer${d.blend ? ', two weighted AnimationActions' : ''})`,
+    notes: variant === 'optimized' ? ['no instanced or baked skinning with a pose per instance in three (an instanced SkinnedMesh shares one skeleton): the default path runs the crowd workload'] : [],
     update(t) {
       for (let i = 0; i < d.count; i++) {
         const { mixer, actions } = chars[i];

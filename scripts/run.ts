@@ -3,7 +3,7 @@
 //
 //   npm run bench -- --browser chrome --profile quick
 //   npm run bench -- --browser chrome,firefox,safari --profile full
-//   npm run bench -- --browser chrome --profile smoke --only "engine=three,babylon;scenario=s1"
+//   npm run bench -- --browser chrome --profile smoke --only "engine=three,babylon;scenario=k2"
 import { build, preview } from 'vite';
 import { spawn, execFile, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, existsSync } from 'node:fs';
@@ -94,7 +94,7 @@ function buildQueue(sessionId: string, profile: Profile, cells: Cell[], gpuTimin
   const engines = [...new Set(cells.map((c) => c.engine))];
   if (profile.prime) {
     for (const engine of engines) {
-      const backend = engine === 'three-classic' ? 'webgl2' : 'webgpu';
+      const { backend } = cells.find((c) => c.engine === engine)!;
       add({ engine, backend, scenario: 'k1', tag: 'prime', warmupFrames: 62, warmupMs: 0, measureFrames: 30, measureMs: 0 }, { ladder: `prime|${engine}`, level: 1, repeat: 0, mode: 'timing', tag: 'prime' });
     }
   }
@@ -160,6 +160,8 @@ function launch(browser: string, url: string): Browser {
         '--disable-frame-rate-limit',
         '--enable-webgpu-developer-features',
         '--enable-precise-memory-info',
+        // Lets memory snapshots force a collection, so heap growth isn't GC timing.
+        '--js-flags=--expose-gc',
         '--disable-background-timer-throttling',
         '--disable-renderer-backgrounding',
         '--disable-backgrounding-occluded-windows',
@@ -255,23 +257,26 @@ async function runSession(session: BenchSession) {
 
   // Each launch gets a new generation: pages from a previous browser instance are refused runs and results.
   const start = () => `${origin}/index.html?session=${encodeURIComponent(id)}&gen=${session.nextGeneration()}`;
+  // The generation moves on before the old browser is killed, so its pages can't take a run while it dies.
+  const relaunch = async () => {
+    const url = start();
+    await handle.kill();
+    session.lastActivity = Date.now();
+    handle = launch(browser, url);
+  };
   session.restartEvery = Number(args['restart-every']);
   let handle = launch(browser, start());
   const timeoutMs = Number(args.timeout) * 1000;
   while (!session.done) {
     await sleep(1000);
     if (session.restartPending) {
-      await handle.kill();
-      session.lastActivity = Date.now();
-      handle = launch(browser, start());
+      await relaunch();
       continue;
     }
     if (Date.now() - session.lastActivity > timeoutMs) {
       console.log(`[${browser}] watchdog: run ${session.current?.runId} silent for ${args.timeout}s — restarting browser`);
       session.timeoutCurrent(`no result within ${args.timeout}s`);
-      await handle.kill();
-      session.lastActivity = Date.now();
-      handle = launch(browser, start());
+      await relaunch();
     }
   }
   await sleep(500);

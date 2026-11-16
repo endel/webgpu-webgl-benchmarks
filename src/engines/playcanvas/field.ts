@@ -272,8 +272,9 @@ export async function buildField(ctx: PcCtx, d: FieldScene, variant: Variant, op
   const { app, device } = ctx;
   const notes: string[] = [];
   let make = entities;
-  if (variant === 'optimized') {
-    if (d.pick) throw new Error('N/A: the GPU Picker is the only first-party picker in PlayCanvas (measured as naive); there is no CPU ray-mesh pick without a physics add-on');
+  // with a HUD the variant picks the HUD path; the meshes stay on the naive path
+  if (variant === 'optimized' && !d.hud) {
+    if (d.pick) throw new Error('N/A (as naive): the GPU Picker is the only first-party picker in PlayCanvas and the default pick already uses it; there is no CPU ray-mesh pick without a physics add-on');
     make = d.animated ? instanced : cells;
   }
   const meshes = d.geometries.map((g) => toMesh(device, g));
@@ -297,7 +298,7 @@ export async function buildField(ctx: PcCtx, d: FieldScene, variant: Variant, op
   if (d.post) addPost(ctx, d.post, d.clearColor, notes);
   let updateHud: (() => void) | undefined;
   if (d.hud) {
-    const hud = await buildHud(ctx, d.hud);
+    const hud = await buildHud(ctx, d.hud, variant);
     updateHud = hud.update;
     path += `; ${hud.path}`;
   }

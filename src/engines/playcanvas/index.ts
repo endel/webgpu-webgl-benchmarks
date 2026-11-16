@@ -57,6 +57,7 @@ class PlayCanvasAdapter implements EngineAdapter {
   readonly version = pc.version;
   private ctx!: PcCtx;
   private built!: Built;
+  private shadersChecked = false;
 
   async init(canvas: HTMLCanvasElement, opts: InitOptions): Promise<InitReport> {
     const device = await pc.createGraphicsDevice(canvas, {
@@ -137,7 +138,8 @@ class PlayCanvasAdapter implements EngineAdapter {
     app.update(dt);
     app.render();
     // PlayCanvas only logs shader compile/link failures and skips those draws: fail the run instead
-    if (t === 0) {
+    if (!this.shadersChecked) {
+      this.shadersChecked = true;
       const bad = device.shaders.find((s) => s.failed);
       if (bad) throw new Error(`playcanvas: shader "${bad.name}" failed to compile/link, its draws were skipped (see consoleErrors)`);
     }

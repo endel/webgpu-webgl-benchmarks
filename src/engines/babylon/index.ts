@@ -141,6 +141,7 @@ class BabylonAdapter implements EngineAdapter {
       this.ctx.sun = sun;
     }
 
+    if (data.kind === 'field' && data.hud && variant === 'optimized') throw new Error('N/A (as naive): @babylonjs/gui draws every control with Canvas2D into one AdvancedDynamicTexture; it has no batching path for moving controls');
     switch (data.kind) {
       case 'field':
         this.built = buildField(this.ctx, data, variant, opt);

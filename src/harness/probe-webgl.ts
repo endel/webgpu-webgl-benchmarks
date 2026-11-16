@@ -150,6 +150,40 @@ export class WebGLProbe {
     count('drawRangeElements', 'draws', (a) => tris(a[3]));
     count('drawArraysInstanced', 'draws', (a) => tris(a[2], a[3]));
     count('drawElementsInstanced', 'draws', (a) => tris(a[1], a[4]));
+
+    // Multi-draw and base-instance draws live on extension objects (three's BatchedMesh uses WEBGL_multi_draw).
+    // A multi-draw call counts as one draw; `multiDrawItems` counts the draws inside it.
+    const multi = (counts: ArrayLike<number>, countsAt: number, inst: ArrayLike<number> | null, instAt: number, n: number) => {
+      p.inc('multiDrawItems', n);
+      for (let i = 0; i < n; i++) tris(counts[countsAt + i], inst ? inst[instAt + i] : 1);
+    };
+    const extensionDraws: Record<string, (a: any[]) => void> = {
+      multiDrawArraysWEBGL: (a) => multi(a[3], a[4], null, 0, a[5]),
+      multiDrawElementsWEBGL: (a) => multi(a[1], a[2], null, 0, a[6]),
+      multiDrawArraysInstancedWEBGL: (a) => multi(a[3], a[4], a[5], a[6], a[7]),
+      multiDrawElementsInstancedWEBGL: (a) => multi(a[1], a[2], a[6], a[7], a[8]),
+      multiDrawArraysInstancedBaseInstanceWEBGL: (a) => multi(a[3], a[4], a[5], a[6], a[9]),
+      multiDrawElementsInstancedBaseVertexBaseInstanceWEBGL: (a) => multi(a[1], a[2], a[6], a[7], a[12]),
+      drawArraysInstancedBaseInstanceWEBGL: (a) => tris(a[2], a[3]),
+      drawElementsInstancedBaseVertexBaseInstanceWEBGL: (a) => tris(a[1], a[4]),
+    };
+    const patched = new WeakSet<object>();
+    wrap(GL, 'getExtension', (orig) => function (this: WebGL2RenderingContext, name: string) {
+      const ext = orig.call(this, name);
+      const proto = ext && Object.getPrototypeOf(ext);
+      if (proto && !patched.has(proto)) {
+        patched.add(proto);
+        for (const [method, extra] of Object.entries(extensionDraws)) {
+          wrap(proto, method, (fn) => function (this: unknown, ...args: any[]) {
+            p.inc('draws');
+            extra(args);
+            return fn.apply(this, args);
+          });
+        }
+      }
+      return ext;
+    });
+
     count('useProgram', 'useProgram');
     count('bindVertexArray', 'bindVertexArray');
     count('bindBuffer', 'bindBuffer');
@@ -157,9 +191,15 @@ export class WebGLProbe {
     count('bindBufferRange', 'bindBufferRange');
     count('bindTexture', 'bindTexture');
     count('bindFramebuffer', 'bindFramebuffer');
-    const bytesOf = (d: any) => (d && typeof d.byteLength === 'number' ? d.byteLength : typeof d === 'number' ? d : 0);
-    count('bufferData', 'bufferData', (a) => p.inc('uploadBytes', bytesOf(a[1])));
-    count('bufferSubData', 'bufferSubData', (a) => p.inc('uploadBytes', bytesOf(a[2])));
+    // WebGL2's srcOffset and length count elements of a typed-array source.
+    const bytesOf = (d: any, srcOffset = 0, length?: number) => {
+      if (typeof d === 'number') return d;
+      if (!d || typeof d.byteLength !== 'number') return 0;
+      const bpe = d.BYTES_PER_ELEMENT ?? 1;
+      return length ? length * bpe : d.byteLength - srcOffset * bpe;
+    };
+    count('bufferData', 'bufferData', (a) => p.inc('uploadBytes', bytesOf(a[1], a[3], a[4])));
+    count('bufferSubData', 'bufferSubData', (a) => p.inc('uploadBytes', bytesOf(a[2], a[3], a[4])));
     count('texSubImage2D', 'texUploads');
     count('texImage2D', 'texUploads');
     for (const name of Object.getOwnPropertyNames(GL)) {

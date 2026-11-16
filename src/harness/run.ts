@@ -2,7 +2,8 @@
 import { installWebGPUProbe } from './probe-webgpu';
 import { installWebGLProbe } from './probe-webgl';
 import { parseParams } from './params';
-import { buildScene, needsAssets, WIDTH, HEIGHT, type AssetManifest } from './scenes';
+import { buildScene, expectedWork, needsAssets, WIDTH, HEIGHT, type AssetManifest } from './scenes';
+import { lapState, poseTime } from './camera-path';
 import { summarize, stutterCount, longFrames, median, round3 } from './stats';
 import type { EngineAdapter, EngineId, FrameCounters, SceneData } from './types';
 
@@ -136,6 +137,8 @@ async function main() {
   if (needsAssets(params.scenario)) assets = await (await fetch('assets/manifest.json')).json();
   const scene: SceneData = buildScene(params.scenario, params.level, assets, params.variant);
   marks.built = performance.now();
+  const path = !params.standalone && scene.cameraPath ? scene.cameraPath : null;
+  let lapStart = 0;
 
   status('load…');
   const loadReport = await adapter.load(scene, params.variant, params.opt);
@@ -149,7 +152,7 @@ async function main() {
 
   const renderOne = (): FrameRec => {
     const i = frameIndex++;
-    const t = i * DT;
+    const t = path ? poseTime(path, i - lapStart) : i * DT;
     const a = performance.now();
     scene.update(t);
     const b = performance.now();
@@ -188,10 +191,19 @@ async function main() {
         clearInterval(guard);
         reject(new Error(`stalled: no animation frame for ${STALL_MS / 1000} s (window occluded or GPU hang)`));
       }, 1000);
-      const tick = (ts: number) => {
+      // At most one frame of GPU work in flight when a frame starts. Uncapped, the browser lets JavaScript
+      // run ahead until the GPU queue is full, then blocks whichever call meets the full queue
+      // (getCurrentTexture, submit), so the CPU time would measure where that wait lands, not engine work.
+      const queue = params.backend === 'webgpu' ? wgpu?.device?.queue : undefined;
+      let previous: Promise<undefined> | undefined;
+      let beforePrevious: Promise<undefined> | undefined;
+      const tick = async (ts: number) => {
         lastTick = performance.now();
         try {
+          await beforePrevious;
           const rec = renderOne();
+          beforePrevious = previous;
+          previous = queue?.onSubmittedWorkDone();
           rec.ts = ts;
           if (start < 0) start = ts;
           recs.push(rec);
@@ -211,10 +223,16 @@ async function main() {
 
   status('warm-up…');
   let warmupCapped = false;
+  const warmupFrames = path ? Math.max(params.warmupFrames, path.poses) : params.warmupFrames;
   const warm = await loop((n, elapsed, last) => {
     const stable = last.i - lastCreateFrame >= STABLE_FRAMES;
-    const minDone = n >= params.warmupFrames && elapsed >= params.warmupMs && frameIndex > SHOT_FRAME + 1;
+    const minDone = n >= warmupFrames && elapsed >= params.warmupMs && frameIndex > SHOT_FRAME + 1;
     if (minDone && stable) return true;
+    // Every pose is rendered once before any cap can end warm-up.
+    if (path && n < path.poses) {
+      if (elapsed >= 2 * params.maxMeasureMs) throw new Error(`camera path incomplete: warm-up rendered ${n} of ${path.poses} poses in ${(elapsed / 1000).toFixed(1)} s`);
+      return false;
+    }
     // Far past any frame budget: stop early instead of burning the watchdog.
     if (elapsed >= WARMUP_CAP_MS || (n >= 5 && elapsed / n > PATHOLOGICAL_MS && frameIndex > SHOT_FRAME + 1)) return (warmupCapped = true);
     return false;
@@ -222,16 +240,25 @@ async function main() {
   marks.warm = performance.now();
   const pipelinesBefore = pipelinesCreated();
   const memBefore = memorySnapshot();
+  marks.measureStart = performance.now();
 
   status('measuring…');
-  const recs = await loop(
-    (n, elapsed) =>
-      (n >= params.measureFrames && elapsed >= params.measureMs) ||
-      (elapsed >= params.maxMeasureMs && n >= 10) ||
-      elapsed >= params.maxMeasureMs * 2 ||
-      (n >= 5 && elapsed / n > PATHOLOGICAL_MS),
+  if (path) lapStart = frameIndex;
+  const recs = await loop((n, elapsed) =>
+    path
+      ? lapState(n, elapsed, path.poses, params) !== 'continue'
+      : (n >= params.measureFrames && elapsed >= params.measureMs) ||
+        (elapsed >= params.maxMeasureMs && n >= 10) ||
+        elapsed >= params.maxMeasureMs * 2 ||
+        (n >= 5 && elapsed / n > PATHOLOGICAL_MS),
   );
   marks.measured = performance.now();
+  if (path) {
+    // Whole laps only, so every pose carries the same weight in every statistic.
+    const whole = Math.floor(recs.length / path.poses) * path.poses;
+    if (!whole) throw new Error(`camera path incomplete: rendered ${recs.length} of ${path.poses} poses in ${((marks.measured - marks.measureStart) / 1000).toFixed(1)} s`);
+    recs.length = whole;
+  }
   const pipelinesDuringMeasure = pipelinesCreated() - pipelinesBefore;
   const memAfter = memorySnapshot();
 
@@ -258,13 +285,14 @@ async function main() {
   await withTimeout(Promise.all([wgpu?.flush(), wgl?.flush()]), 5000);
 
   const intervals = recs.slice(1).map((r, k) => r.ts - recs[k].ts);
-  const gpuSpan: number[] = [], gpuSum: number[] = [], gpuPasses: number[] = [];
+  const gpuSpan: number[] = [], gpuSum: number[] = [], gpuBusy: number[] = [], gpuPasses: number[] = [];
   for (const r of recs) {
     if (params.backend === 'webgpu') {
       const g = wgpu?.gpuTimes.get(r.i);
       if (g) {
         gpuSpan.push(g.span);
         gpuSum.push(g.sum);
+        gpuBusy.push(g.busy);
         gpuPasses.push(g.passes);
       }
     } else {
@@ -307,7 +335,7 @@ async function main() {
       warmupMs: round3(marks.warm - marks.firstFrame),
       warmupCapped,
       stableAtMs: round3(marks.firstFrame + (warm.find((r) => r.i === lastCreateFrame)?.ts ?? 0) - (warm[0]?.ts ?? 0)),
-      measureMs: round3(marks.measured - marks.warm),
+      measureMs: round3(marks.measured - marks.measureStart),
     },
     frames: {
       count: recs.length,
@@ -316,22 +344,26 @@ async function main() {
       sim: summarize(recs.map((r) => r.sim)),
       gpu: summarize(gpuSpan),
       gpuSum: summarize(gpuSum),
+      gpuBusy: summarize(gpuBusy),
       gpuPasses: summarize(gpuPasses),
+      gpuTimed: gpuSpan.length,
       gpuCoverage: round3(gpuSpan.length / recs.length),
       stutter: stutterCount(intervals),
       /** Frames over the 60 and 30 fps budgets. Interval only means something where the browser is uncapped. */
       long: { interval: longFrames(intervals), cpu: longFrames(recs.map((r) => r.cpu)) },
+      path: path ? { poses: path.poses, laps: recs.length / path.poses } : null,
     },
     pick,
     raw: {
       interval: intervals.map(round3),
       cpu: recs.map((r) => round3(r.cpu)),
       gpu: recs.map((r) => {
-        const g = params.backend === 'webgpu' ? wgpu?.gpuTimes.get(r.i)?.span : wgl?.gpuTimes.get(r.i);
+        const g = params.backend === 'webgpu' ? wgpu?.gpuTimes.get(r.i)?.busy : wgl?.gpuTimes.get(r.i);
         return g === undefined ? null : round3(g);
       }),
     },
     counters,
+    expected: expectedWork(params.scenario, scene) ?? null,
     memory: { jsHeapUsed: mem?.usedJSHeapSize ?? null, jsHeapTotal: mem?.totalJSHeapSize ?? null, before: memBefore, after: memAfter },
     pipelinesDuringMeasure,
     consoleErrors,
@@ -342,11 +374,18 @@ async function main() {
   await next();
 }
 
-/** JS heap (Chrome only), live GPU bytes (WebGPU) or live GL object counts (WebGL2), pipelines so far. */
+/**
+ * JS heap (Chrome only), live GPU bytes (WebGPU) or live GL object counts (WebGL2), pipelines so far.
+ * Where the browser exposes gc(), a collection runs first, so heap growth counts live objects rather
+ * than garbage not yet collected.
+ */
 function memorySnapshot() {
+  const gc = (globalThis as { gc?: () => void }).gc;
+  gc?.();
   const mem = (performance as any).memory;
   const live = (params.backend === 'webgpu' ? wgpu?.report() : wgl?.report()) as any;
   return {
+    gcForced: !!gc,
     jsHeapUsed: (mem?.usedJSHeapSize as number | undefined) ?? null,
     gpuBufferBytes: (live?.mem?.buffer as number | undefined) ?? null,
     gpuTextureBytes: (live?.mem?.texture as number | undefined) ?? null,
@@ -359,7 +398,7 @@ async function standalone(loop: (done: (n: number, e: number, r: FrameRec) => bo
   for (;;) {
     const recs = await loop((n) => n >= 60);
     const iv = recs.slice(1).map((r, k) => r.ts - recs[k].ts);
-    const gpu = recs.map((r) => wgpu?.gpuTimes.get(r.i)?.span ?? wgl?.gpuTimes.get(r.i)).filter((x): x is number => x !== undefined);
+    const gpu = recs.map((r) => wgpu?.gpuTimes.get(r.i)?.busy ?? wgl?.gpuTimes.get(r.i)).filter((x): x is number => x !== undefined);
     status(`fps ${(1000 / median(iv)).toFixed(1)}  cpu ${median(recs.map((r) => r.cpu)).toFixed(2)}ms  sim ${median(recs.map((r) => r.sim)).toFixed(2)}ms  gpu ${gpu.length ? median(gpu).toFixed(2) : '-'}ms  pipelines ${pipelinesCreated()}  errors ${[...(wgpu?.errors ?? []), ...consoleErrors].length}`);
   }
 }

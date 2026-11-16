@@ -22,6 +22,9 @@ export interface AssetManifest {
   };
 }
 
+/** Camera poses per lap on scenes with a moving camera (see `CameraPath`). */
+export const CAMERA_POSES = 60;
+
 const CLEAR: Vec3 = [0.02, 0.02, 0.025];
 const AMBIENT = { color: [0.6, 0.65, 0.75] as Vec3, intensity: 0.3 };
 const GREY: PbrSpec = { color: [0.72, 0.72, 0.72], roughness: 0.5, metalness: 0 };
@@ -315,6 +318,9 @@ function shadowField(count: number, post: boolean): FieldScene {
   };
 }
 
+/** Seconds for the Sponza camera to travel the nave and back. */
+const SPONZA_LOOP_S = 16;
+
 function sponza(assets: AssetManifest): GltfScene {
   const a = assets.Sponza;
   // Sponza's root node scales the centimetre data by 0.008 — frame the world-space extent.
@@ -325,7 +331,7 @@ function sponza(assets: AssetManifest): GltfScene {
   const len = alongX ? lenX : lenZ;
   const camera: CameraSpec = { position: [0, 0, 0], target: [0, 0, 0], fovY: 60, near: len / 2000, far: len * 1.5 };
   const update = (t: number) => {
-    const s = Math.sin((t * Math.PI * 2) / 16) * 0.35 * len;
+    const s = Math.sin((t * Math.PI * 2) / SPONZA_LOOP_S) * 0.35 * len;
     const yaw = 0.6 * Math.sin((t * Math.PI * 2) / 10);
     const y = c[1] + 0.15 * h;
     const px = alongX ? c[0] + s : c[0];
@@ -508,6 +514,7 @@ function litSponza(assets: AssetManifest, level: number): GltfScene {
   const { min, max } = assets.Sponza.worldBounds ?? assets.Sponza.bounds;
   const len = Math.max(max[0] - min[0], max[2] - min[2]), h = max[1] - min[1];
   d.cameraLive = true;
+  d.cameraPath = { duration: SPONZA_LOOP_S, poses: CAMERA_POSES };
   if (level >= 1) d.sun!.shadow = { cascades: 4, mapSize: 2048, maxDistance: len * 0.6 };
   if (level >= 2) {
     const n = level >= 4 ? 256 : 31;
@@ -541,6 +548,9 @@ function litSponza(assets: AssetManifest, level: number): GltfScene {
   return d;
 }
 
+/** Seconds for one full turn of the K5 camera. */
+const TURN_S = 10 * Math.PI;
+
 /**
  * K5: a static world much larger than the view. Density is fixed, so the camera sees about
  * 2,000 objects whatever the world size: cost should follow what is visible, not what exists.
@@ -567,6 +577,7 @@ function worldField(count: number): FieldScene {
     kind: 'field',
     camera,
     cameraLive: true,
+    cameraPath: { duration: TURN_S, poses: CAMERA_POSES },
     clearColor: CLEAR,
     ambient: AMBIENT,
     sun: sun(),
@@ -581,7 +592,7 @@ function worldField(count: number): FieldScene {
     animated: false,
     shadows: false,
     update: (t) => {
-      const a = t * 0.2;
+      const a = (t / TURN_S) * 2 * Math.PI;
       camera.target = [10 * Math.cos(a), 4, 10 * Math.sin(a)];
     },
   };
@@ -736,6 +747,27 @@ export function buildScene(id: ScenarioId, level: number, assets: AssetManifest 
     case 'k8': return pickField(level);
     case 'k9': return hudField(level);
   }
+}
+
+/** The least a correct frame submits, for the report's render guard. */
+export interface ExpectedWork {
+  /** Objects in view, each drawn at least once per frame. */
+  objects: number;
+  /** Triangles of those objects. */
+  triangles: number;
+}
+
+/**
+ * Field scenarios that keep every object in view; elsewhere culling legitimately changes what is
+ * drawn. K3 is left out because respawns re-roll geometry, so its total drifts over a run.
+ */
+const ALL_IN_VIEW = new Set<ScenarioId>(['k1', 'k2', 'k7', 'k8', 'k9']);
+
+export function expectedWork(id: ScenarioId, scene: SceneData): ExpectedWork | undefined {
+  if (!ALL_IN_VIEW.has(id) || scene.kind !== 'field') return undefined;
+  let triangles = 0;
+  for (let i = 0; i < scene.count; i++) triangles += scene.geometries[scene.geom[i]].indices.length / 3;
+  return { objects: scene.count, triangles };
 }
 
 /**

@@ -21,7 +21,7 @@
   },
   {
     "title": "Crowds: only the two Babylons have a baked path",
-    "body": "With every character crossfading two clips, Babylon Lite and PixiJS 3D hold all 800 Fox characters at 60 fps, PlayCanvas 650, three.js about 610 and Babylon.js 390. For crowds beyond that, Babylon.js and Babylon Lite bake the animation into a texture and draw 3,200 characters in one instanced call, each on its own phase. three.js, PlayCanvas and PixiJS 3D have no first-party instanced or baked skinning."
+    "body": "With every character crossfading two clips, Babylon Lite and PixiJS 3D hold all 800 Fox characters at 60 fps, PlayCanvas 650, three.js about 610 and Babylon.js 390. For crowds beyond that, Babylon.js and Babylon Lite bake the animation into a texture and draw 3,200 characters in one instanced call, each on its own phase; the baked path plays a single clip without the crossfade, a lighter workload. three.js and PlayCanvas have no first-party instanced or baked skinning; PixiJS 3D has no separate baked or instanced crowd path, but its default path already batches skinned characters (800 in 3 draw calls on WebGPU, 2 on WebGL2)."
   },
   {
     "title": "Picking: the default call ranges from half a millisecond to 47",

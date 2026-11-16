@@ -1,12 +1,11 @@
 import { View3D } from '@pixi/3d';
+import { version as PIXI3D_VERSION } from '@pixi/3d/package.json';
 import { Application, VERSION } from 'pixi.js';
 import type { EngineAdapter, InitOptions, InitReport, LoadReport, SceneData, Variant } from '../../harness/types';
 import { setupCommon, type Built, type Ctx } from './common';
 import { buildField } from './field';
 import { buildGltf } from './gltf';
 import { buildCharacters } from './characters';
-
-const PIXI3D_VERSION = '0.1.0';
 
 export function createAdapter(): EngineAdapter {
   return new Pixi3DAdapter();
