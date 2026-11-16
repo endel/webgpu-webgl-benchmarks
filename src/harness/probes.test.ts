@@ -15,12 +15,33 @@ function stub(names: string[], overrides: Methods = {}) {
 const DRAWS = ['draw', 'drawIndexed', 'drawIndirect', 'drawIndexedIndirect'];
 const RenderPass = stub([...DRAWS, 'setPipeline', 'setBindGroup', 'setVertexBuffer', 'setIndexBuffer', 'executeBundles', 'end']);
 const BundleEncoder = stub([...DRAWS, 'setPipeline', 'setBindGroup', 'setVertexBuffer', 'setIndexBuffer'], { finish: () => ({}) });
+
+/** A buffer whose bytes live in memory, so copies and readbacks can be checked. */
+interface FakeBuffer { usage: number; bytes: Uint8Array; mapAsync(): Promise<void>; getMappedRange(): ArrayBuffer; unmap(): void; destroy(): void }
+const fakeBuffer = (desc: { size: number; usage: number }): FakeBuffer => {
+  const bytes = new Uint8Array(desc.size);
+  return { usage: desc.usage, bytes, mapAsync: async () => {}, getMappedRange: () => bytes.buffer, unmap() {}, destroy() {} };
+};
+const CommandEncoder = stub(['beginComputePass'], {
+  beginRenderPass: () => new RenderPass(),
+  // Copies land at once, in the order they are recorded.
+  copyBufferToBuffer: (src, srcOffset, dst, dstOffset, size) => {
+    const [s, d] = [src as FakeBuffer, dst as FakeBuffer];
+    d.bytes.set(s.bytes.subarray(srcOffset as number, (srcOffset as number) + (size as number)), dstOffset as number);
+  },
+  finish: () => ({}),
+});
 Object.assign(globalThis, {
-  GPUDevice: stub(['createCommandEncoder', 'createBuffer', 'createTexture', 'createRenderPipeline', 'createRenderPipelineAsync', 'createComputePipeline', 'createComputePipelineAsync', 'createShaderModule', 'createBindGroup']),
+  GPUBufferUsage: { MAP_READ: 1, MAP_WRITE: 2, COPY_SRC: 4, COPY_DST: 8, INDEX: 16, VERTEX: 32, UNIFORM: 64, STORAGE: 128, INDIRECT: 256, QUERY_RESOLVE: 512 },
+  GPUMapMode: { READ: 1, WRITE: 2 },
+  GPUDevice: stub(['createTexture', 'createRenderPipeline', 'createRenderPipelineAsync', 'createComputePipeline', 'createComputePipelineAsync', 'createShaderModule', 'createBindGroup'], {
+    createBuffer: (desc) => fakeBuffer(desc as { size: number; usage: number }),
+    createCommandEncoder: () => new CommandEncoder(),
+  }),
   GPUQueue: stub(['submit', 'writeBuffer', 'writeTexture', 'onSubmittedWorkDone']),
   GPUAdapter: stub(['requestDevice']),
   GPUCanvasContext: stub(['configure']),
-  GPUCommandEncoder: stub(['beginRenderPass', 'beginComputePass', 'finish']),
+  GPUCommandEncoder: CommandEncoder,
   GPUBuffer: stub(['destroy']),
   GPUTexture: stub(['destroy']),
   GPURenderPassEncoder: RenderPass,
@@ -62,6 +83,45 @@ test('render bundle work is credited on every executeBundles', () => {
   pass.executeBundles([bundle]);
   pass.executeBundles([bundle]);
   assert.deepEqual(gpu.takeFrame(), Object.fromEntries(Object.entries(once).map(([k, v]) => [k, v * 2])));
+});
+
+test('indirect draws are credited with the arguments they drew with, bundle replays included', async () => {
+  const device = Object.assign(new (globalThis as any).GPUDevice(), { features: new Set(), addEventListener() {}, lost: new Promise(() => {}), queue: new (globalThis as any).GPUQueue() });
+  gpu.attach(device, {} as GPUAdapter);
+  const { INDIRECT, STORAGE, COPY_SRC } = (globalThis as any).GPUBufferUsage;
+  const args = device.createBuffer({ size: 64, usage: INDIRECT | STORAGE }) as FakeBuffer;
+  assert.ok(args.usage & COPY_SRC, 'counters runs make indirect buffers copyable');
+  const words = new Uint32Array(args.bytes.buffer);
+  words.set([6, 4, 0, 0], 0); // drawIndirect: 6 vertices × 4 instances
+  words.set([36, 10, 0, 0, 0], 5); // drawIndexedIndirect at byte 20: 36 indices × 10 instances
+
+  const rec = new BundleEncoder();
+  rec.drawIndirect(args, 0);
+  const bundle = rec.finish();
+  gpu.takeFrame();
+
+  const enc = device.createCommandEncoder();
+  const pass = enc.beginRenderPass({});
+  pass.drawIndexedIndirect(args, 20);
+  pass.executeBundles([bundle]);
+  pass.executeBundles([bundle]);
+  pass.end();
+  words.set([0, 0, 0, 0, 0], 5); // a later pass rewrites the arguments; the copy kept what this pass drew
+  device.queue.submit([enc.finish()]);
+  gpu.endFrame(7);
+  await gpu.flush();
+
+  assert.deepEqual(gpu.indirectWork.get(7), { instances: 18, triangles: 136 });
+  assert.equal(gpu.takeFrame().indirectDraws, 3);
+});
+
+test('an indirect buffer the probe could not make copyable is counted as unreadable', () => {
+  const foreign = fakeBuffer({ size: 20, usage: 256 });
+  const pass = new CommandEncoder().beginRenderPass({}) as Methods;
+  gpu.takeFrame();
+  pass.drawIndirect(foreign, 0);
+  pass.end();
+  assert.deepEqual(gpu.takeFrame(), { draws: 1, indirectDraws: 1, indirectUnreadable: 1 });
 });
 
 test('draws recorded in a pass are not double counted by bundles', () => {

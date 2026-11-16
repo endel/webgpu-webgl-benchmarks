@@ -19,6 +19,17 @@ export interface GpuFrameTime {
   passes: number;
 }
 
+/** Work drawn by a frame's indirect draws, read back from their argument buffers (counters mode). */
+export interface IndirectWork {
+  instances: number;
+  triangles: number;
+}
+
+type IndirectRange = { buffer: GPUBuffer; offset: number; indexed: boolean };
+type IndirectRead = { staging: GPUBuffer; ranges: IndirectRange[] };
+/** u32 words per readback slot: drawIndexedIndirect's five arguments; drawIndirect uses the first four. */
+const ARG_WORDS = 5;
+
 const TEXEL_BYTES: Record<string, number> = {
   r8unorm: 1, r8snorm: 1, r8uint: 1, r8sint: 1, stencil8: 1,
   rg8unorm: 2, rg8snorm: 2, rg8uint: 2, rg8sint: 2, r16float: 2, r16uint: 2, r16sint: 2, depth16unorm: 2,
@@ -56,6 +67,8 @@ export class WebGPUProbe {
   canvasConfig: Record<string, unknown> | null = null;
   errors: string[] = [];
   gpuTimes = new Map<number, GpuFrameTime>();
+  /** Per frame, once every indirect argument readback of that frame has resolved. */
+  indirectWork = new Map<number, IndirectWork>();
   totals = { renderPipelines: 0, computePipelines: 0, shaderModules: 0, bindGroups: 0, buffers: 0, textures: 0, bundles: 0 };
   mem = { buffer: 0, texture: 0, peakBuffer: 0, peakTexture: 0 };
   frame: FrameCounters = {};
@@ -65,6 +78,14 @@ export class WebGPUProbe {
   private cur: Slot | null = null;
   private encoders = new WeakSet<GPUCommandEncoder>();
   private orig: { createCommandEncoder?: GPUDevice['createCommandEncoder']; submit?: GPUQueue['submit']; createBuffer?: GPUDevice['createBuffer'] } = {};
+  // Indirect draws: buffers given COPY_SRC, ranges drawn per open pass, copies waiting on their submit.
+  private copyable = new WeakSet<GPUBuffer>();
+  private passEncoder = new WeakMap<GPURenderPassEncoder, GPUCommandEncoder>();
+  private passRanges = new WeakMap<GPURenderPassEncoder, IndirectRange[]>();
+  private encoderReads = new WeakMap<GPUCommandEncoder, IndirectRead[]>();
+  private bufferReads = new WeakMap<GPUCommandBuffer, IndirectRead[]>();
+  private frameReads: Promise<IndirectWork | null>[] = [];
+  private pendingReads = 0;
 
   constructor(
     readonly mode: Mode,
@@ -127,8 +148,82 @@ export class WebGPUProbe {
     return { ...(desc as object), timestampWrites: { querySet: s.qs, beginningOfPassWriteIndex: i, endOfPassWriteIndex: i + 1 } } as T;
   }
 
+  drewIndirect(pass: GPURenderPassEncoder, ranges: IndirectRange[]) {
+    let list = this.passRanges.get(pass);
+    if (!list) this.passRanges.set(pass, (list = []));
+    list.push(...ranges);
+  }
+
+  /**
+   * After a pass ends, copies the arguments its indirect draws used into a staging buffer, in the
+   * engine's own encoder: a later compute pass in the same encoder may rewrite them.
+   */
+  copyIndirect(pass: GPURenderPassEncoder) {
+    const ranges = this.passRanges.get(pass), enc = this.passEncoder.get(pass), device = this.device;
+    this.passRanges.delete(pass);
+    if (!ranges?.length || !enc || !device) return;
+    const readable = ranges.filter((r) => this.copyable.has(r.buffer));
+    if (readable.length < ranges.length) this.inc('indirectUnreadable', ranges.length - readable.length);
+    if (!readable.length) return;
+    const staging = this.orig.createBuffer!.call(device, { size: readable.length * ARG_WORDS * 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+    readable.forEach((r, i) => enc.copyBufferToBuffer(r.buffer, r.offset, staging, i * ARG_WORDS * 4, r.indexed ? 20 : 16));
+    let reads = this.encoderReads.get(enc);
+    if (!reads) this.encoderReads.set(enc, (reads = []));
+    reads.push({ staging, ranges: readable });
+  }
+
+  finished(enc: GPUCommandEncoder, cb: GPUCommandBuffer) {
+    const reads = this.encoderReads.get(enc);
+    if (!reads) return;
+    this.encoderReads.delete(enc);
+    this.bufferReads.set(cb, reads);
+  }
+
+  /** Maps a submitted command buffer's staging copies; a buffer can't be mapped before its submit. */
+  submitted(cbs: GPUCommandBuffer[]) {
+    for (const cb of cbs) {
+      for (const read of this.bufferReads.get(cb) ?? []) {
+        this.pendingReads++;
+        this.frameReads.push(
+          read.staging
+            .mapAsync(GPUMapMode.READ)
+            .then(() => {
+              const args = new Uint32Array(read.staging.getMappedRange());
+              const w: IndirectWork = { instances: 0, triangles: 0 };
+              read.ranges.forEach((_, i) => {
+                // Both layouts start with the vertex or index count, then the instance count.
+                const count = args[i * ARG_WORDS], inst = args[i * ARG_WORDS + 1];
+                w.instances += inst;
+                w.triangles += Math.floor(count / 3) * inst;
+              });
+              read.staging.unmap();
+              read.staging.destroy();
+              return w;
+            })
+            .catch(() => null)
+            .finally(() => this.pendingReads--),
+        );
+      }
+      this.bufferReads.delete(cb);
+    }
+  }
+
   /** Call after the frame's work has been submitted: resolves this frame's queries asynchronously. */
   endFrame(frameIndex: number) {
+    if (this.frameReads.length) {
+      const reads = this.frameReads;
+      this.frameReads = [];
+      // A frame with a failed readback would undercount, so it gets no figure at all.
+      Promise.all(reads).then((ws) => {
+        const sum: IndirectWork = { instances: 0, triangles: 0 };
+        for (const w of ws) {
+          if (!w) return;
+          sum.instances += w.instances;
+          sum.triangles += w.triangles;
+        }
+        this.indirectWork.set(frameIndex, sum);
+      });
+    }
     const s = this.cur;
     const device = this.device;
     if (!device) return;
@@ -176,11 +271,11 @@ export class WebGPUProbe {
     this.cur = this.slots.find((x) => !x.busy && x !== s) ?? (s && !s.busy ? s : null);
   }
 
-  /** Wait for outstanding timestamp readbacks. */
+  /** Wait for outstanding timestamp and indirect-argument readbacks. */
   async flush() {
     if (!this.device) return;
     await this.device.queue.onSubmittedWorkDone();
-    for (let i = 0; i < 20 && this.slots.some((s) => s.busy); i++) await new Promise((r) => setTimeout(r, 25));
+    for (let i = 0; i < 20 && (this.slots.some((s) => s.busy) || this.pendingReads > 0); i++) await new Promise((r) => setTimeout(r, 25));
   }
 
   report() {
@@ -235,23 +330,32 @@ export class WebGPUProbe {
 
     wrap(GPUCommandEncoder.prototype, 'beginRenderPass', (orig) => function (this: GPUCommandEncoder, desc: GPURenderPassDescriptor) {
       p.inc('renderPasses');
-      return orig.call(this, p.inject(this, desc));
+      const pass = orig.call(this, p.inject(this, desc));
+      if (p.counting && pass) p.passEncoder.set(pass, this);
+      return pass;
     });
     wrap(GPUCommandEncoder.prototype, 'beginComputePass', (orig) => function (this: GPUCommandEncoder, desc?: GPUComputePassDescriptor) {
       p.inc('computePasses');
       return orig.call(this, p.inject(this, desc));
     });
 
-    wrap(GPUQueue.prototype, 'submit', (orig) => function (this: GPUQueue, cbs: GPUCommandBuffer[]) {
+    wrap(GPUQueue.prototype, 'submit', (orig) => function (this: GPUQueue, cbs: Iterable<GPUCommandBuffer>) {
       p.inc('submits');
-      return orig.call(this, cbs);
+      if (!p.counting) return orig.call(this, cbs);
+      const list = [...cbs];
+      const r = orig.call(this, list);
+      p.submitted(list);
+      return r;
     });
 
     // Creation counters + GPU memory estimate (explicitly destroyed resources only).
     const bufSize = new WeakMap<GPUBuffer, number>();
     const texSize = new WeakMap<GPUTexture, number>();
     wrap(GPUDevice.prototype, 'createBuffer', (orig) => function (this: GPUDevice, desc: GPUBufferDescriptor) {
-      const b = orig.call(this, desc);
+      // Counters runs read indirect arguments back, which needs COPY_SRC; timing runs keep the engine's usage.
+      const readable = p.counting && this === p.device && (desc.usage & GPUBufferUsage.INDIRECT) !== 0;
+      const b = orig.call(this, readable ? { ...desc, usage: desc.usage | GPUBufferUsage.COPY_SRC } : desc);
+      if (readable) p.copyable.add(b);
       if (this === p.device) {
         bufSize.set(b, desc.size);
         p.mem.buffer += desc.size;
@@ -322,20 +426,36 @@ export class WebGPUProbe {
       p.inc('instances', inst);
       p.inc('triangles', Math.floor(a[0] / 3) * inst);
     });
-    count(RP, 'drawIndirect', 'draws', () => p.inc('indirectDraws'));
-    count(RP, 'drawIndexedIndirect', 'draws', () => p.inc('indirectDraws'));
+    for (const [name, indexed] of [['drawIndirect', false], ['drawIndexedIndirect', true]] as const) {
+      wrap(RP, name, (orig) => function (this: GPURenderPassEncoder, ...args: any[]) {
+        p.inc('draws');
+        p.inc('indirectDraws');
+        p.drewIndirect(this, [{ buffer: args[0], offset: args[1] ?? 0, indexed }]);
+        return orig.apply(this, args);
+      });
+    }
+    wrap(RP, 'end', (orig) => function (this: GPURenderPassEncoder) {
+      const r = orig.call(this);
+      p.copyIndirect(this);
+      return r;
+    });
+    wrap(GPUCommandEncoder.prototype, 'finish', (orig) => function (this: GPUCommandEncoder, desc?: GPUCommandBufferDescriptor) {
+      const cb = orig.call(this, desc);
+      p.finished(this, cb);
+      return cb;
+    });
     count(RP, 'setPipeline', 'setPipeline');
     count(RP, 'setBindGroup', 'setBindGroup');
     count(RP, 'setVertexBuffer', 'setVertexBuffer');
     count(RP, 'setIndexBuffer', 'setIndexBuffer');
 
     // A bundle's draws are recorded once and replayed by executeBundles, so the work is credited on every replay.
-    type BundleWork = { draws: number; instances: number; triangles: number; indirect: number };
+    type BundleWork = { draws: number; instances: number; triangles: number; indirect: IndirectRange[] };
     const bundleWork = new WeakMap<GPURenderBundle, BundleWork>();
     const recording = new WeakMap<GPURenderBundleEncoder, BundleWork>();
     const recorded = (enc: GPURenderBundleEncoder) => {
       let w = recording.get(enc);
-      if (!w) recording.set(enc, (w = { draws: 0, instances: 0, triangles: 0, indirect: 0 }));
+      if (!w) recording.set(enc, (w = { draws: 0, instances: 0, triangles: 0, indirect: [] }));
       w.draws++;
       return w;
     };
@@ -349,9 +469,9 @@ export class WebGPUProbe {
         return orig.apply(this, args);
       });
     }
-    for (const name of ['drawIndirect', 'drawIndexedIndirect']) {
+    for (const [name, indexed] of [['drawIndirect', false], ['drawIndexedIndirect', true]] as const) {
       wrap(RB, name, (orig) => function (this: GPURenderBundleEncoder, ...args: any[]) {
-        recorded(this).indirect++;
+        recorded(this).indirect.push({ buffer: args[0], offset: args[1] ?? 0, indexed });
         return orig.apply(this, args);
       });
     }
@@ -373,7 +493,10 @@ export class WebGPUProbe {
         p.inc('draws', w.draws);
         p.inc('instances', w.instances);
         p.inc('triangles', w.triangles);
-        if (w.indirect) p.inc('indirectDraws', w.indirect);
+        if (w.indirect.length) {
+          p.inc('indirectDraws', w.indirect.length);
+          p.drewIndirect(this, w.indirect);
+        }
       }
       return orig.call(this, list);
     });

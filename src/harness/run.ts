@@ -306,6 +306,13 @@ async function main() {
     counters = {};
     const keys = new Set(recs.flatMap((r) => Object.keys(r.counters ?? {})));
     for (const k of keys) counters[k] = median(recs.map((r) => r.counters?.[k] ?? 0));
+    // Indirect arguments read back late and not for every frame: their medians cover the frames that resolved.
+    const indirect = recs.flatMap((r) => wgpu?.indirectWork?.get(r.i) ?? []);
+    if (indirect.length) {
+      counters.indirectTriangles = median(indirect.map((w) => w.triangles));
+      counters.indirectInstances = median(indirect.map((w) => w.instances));
+      counters.indirectFrames = indirect.length;
+    }
     const eng = adapter.counters?.();
     if (eng) for (const [k, v] of Object.entries(eng)) counters[`engine.${k}`] = v;
   }
