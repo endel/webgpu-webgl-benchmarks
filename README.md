@@ -6,6 +6,8 @@ Nine key tests for choosing a 3D engine for the web: **three.js**, **PlayCanvas*
 
 ## Results
 
+[![Benchmarks won per engine in Chrome on WebGPU](docs/og.png)](https://endel.github.io/webgpu-webgl-benchmarks/)
+
 three.js r187, PlayCanvas 2.24.1, Babylon.js 9.36.0, Babylon Lite 1.39.3 and PixiJS 3D 0.1.0 were measured in Chrome 155 and Safari 26 on an Apple M1 Pro, about 3,400 runs in all, three timing repeats per cell. Numbers are Chrome on WebGPU unless noted; capacities are the largest load that fits a 60 fps frame. Bold marks the best result and any within 5% of it, the report's tie band.
 
 | Test | three.js | PlayCanvas | Babylon.js | Babylon Lite | PixiJS 3D |
