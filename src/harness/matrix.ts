@@ -33,7 +33,7 @@ export const SCENARIOS: ScenarioDef[] = [
   { id: 'k3', key: 'K3', title: 'Lifecycle churn: 1,200 spawns/s', levels: [2000], levelLabel: 'live meshes', variants: ['naive'], backends: BOTH, run: { measureFrames: 600, measureMs: 10000, maxMeasureMs: 20000 } },
   { id: 'k4', key: 'K4', title: 'Lit game frame (Sponza)', levels: [0, 1, 2, 3, 4], levelLabel: 'feature step', variants: ['naive'], backends: BOTH },
   { id: 'k5', key: 'K5', title: 'Large world, ~2k visible', levels: [20000, 100000], levelLabel: 'world meshes', variants: ['naive', 'optimized'], backends: BOTH },
-  { id: 'k6', key: 'K6', title: 'Skinned characters (Fox, crossfade)', levels: x2(25, 8), levelsFor: { optimized: x2(200, 9) }, levelLabel: 'characters', variants: ['naive', 'optimized'], backends: BOTH, capacity: true },
+  { id: 'k6', key: 'K6', title: 'Skinned characters (Fox, crossfade)', levels: x2(25, 9), levelsFor: { optimized: x2(200, 9) }, levelLabel: 'characters', variants: ['naive', 'optimized'], backends: BOTH, capacity: true },
   { id: 'k7', key: 'K7', title: 'Sorted transparency', levels: x2(500, 8), levelLabel: 'meshes', variants: ['naive'], backends: BOTH, capacity: true },
   { id: 'k7c', key: 'K7', title: 'Compute particles', levels: [1000000], levelLabel: 'particles', variants: ['naive'], backends: ['webgpu'] },
   { id: 'k8', key: 'K8', title: 'Picking', levels: [1, 10000], levelLabel: 'meshes', variants: ['naive', 'optimized'], backends: BOTH },
