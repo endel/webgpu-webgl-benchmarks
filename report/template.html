@@ -120,6 +120,9 @@
   .stack { display: grid; gap: 18px; }
   .scen { display: grid; gap: 16px 28px; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
   .scen-head { grid-column: 1 / -1; display: grid; gap: 6px; }
+  .scen-tools { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; }
+  .scen-tools small { color: var(--muted); font-size: 12.5px; }
+  @media (max-width: 760px) { .scen-tools .seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; } }
   .scen-head p { margin: 0; color: var(--ink-2); max-width: 78ch; font-size: 14.5px; }
   .scen .id { font: 500 12px/1 var(--mono); color: var(--muted); margin-right: 8px; }
   .scen.tall { grid-template-columns: minmax(0, 1fr); }
@@ -688,15 +691,28 @@ function valueTd(c, m) {
 
 
 // ---------- filters ----------
+/** Segmented radio control. `group` names the radios, so each copy of a control on the page needs its own. */
+function seg(group, label, opts, cur, set) {
+  return h('div', { class: 'seg' }, h('span', {}, label), h('div', { class: 'opts' }, opts.map((o) => {
+    const id = `f-${group}-${o.value}`;
+    const onchange = (ev) => {
+      const keyboard = ev.target.matches(':focus-visible');
+      set(o.value);
+      renderAll();
+      if (keyboard) document.getElementById(id)?.focus({ preventScroll: true }); // the re-render replaced the focused radio
+    };
+    return h('label', {}, h('input', { type: 'radio', name: group, id, value: o.value, checked: cur === o.value, disabled: o.disabled, onchange }), h('span', {}, o.label));
+  })));
+}
+
 function renderFilters() {
   const f = $('#filters');
   f.replaceChildren();
-  const seg = (name, label, opts, cur = state[name], set = (v) => (state[name] = v)) => h('div', { class: 'seg' }, h('span', {}, label), h('div', { class: 'opts' }, opts.map((o) => h('label', {}, h('input', { type: 'radio', name, id: `f-${name}-${o.value}`, value: o.value, checked: cur === o.value, disabled: o.disabled, onchange: () => { set(o.value); renderAll(); } }), h('span', {}, o.label)))));
+  const filter = (name, label, opts) => seg(name, label, opts, state[name], (v) => (state[name] = v));
   f.append(
-    seg('browser', 'Browser', browserNames.map((b) => ({ value: b, label: b }))),
-    seg('backend', 'Backend', [{ value: 'webgpu', label: 'WebGPU' }, { value: 'webgl2', label: 'WebGL2' }]),
-    seg('variant', 'Path', [{ value: 'naive', label: 'Naive' }, { value: 'optimized', label: 'Optimized' }]),
-    seg('metric', 'Metric', Object.entries(METRICS).map(([k, v]) => ({ value: k, label: v.label, disabled: (k === 'gpu' || k === 'frameCost') && !DATA.browsers.find((b) => b.name === state.browser)?.gpuTiming }))),
+    filter('browser', 'Browser', browserNames.map((b) => ({ value: b, label: b }))),
+    filter('backend', 'Backend', [{ value: 'webgpu', label: 'WebGPU' }, { value: 'webgl2', label: 'WebGL2' }]),
+    filter('variant', 'Path', [{ value: 'naive', label: 'Naive' }, { value: 'optimized', label: 'Optimized' }]),
     seg('view', 'View', [{ value: 'summary', label: 'Winners' }, { value: 'detailed', label: 'Full results' }], opened.size === allIds().length ? 'detailed' : opened.size ? '' : 'summary', (v) => {
       opened.clear();
       if (v === 'detailed') allIds().forEach((id) => opened.add(id));
@@ -1045,6 +1061,12 @@ function scenarioCard(d) {
     writeHash();
     charts.forEach((fn) => fn());
   });
+  // The metric only drives these panels, so its switch lives in each one; picking charts ms per pick instead.
+  if (d.id !== 'k8') {
+    const noGpu = !DATA.browsers.find((x) => x.name === b)?.gpuTiming;
+    const opts = Object.entries(METRICS).map(([k, x]) => ({ value: k, label: x.label, disabled: noGpu && (k === 'gpu' || k === 'frameCost') }));
+    card.append(h('div', { class: 'scen-tools' }, seg(`metric-${d.id}`, 'Metric', opts, m, (v) => (state.metric = v)), h('small', {}, METRICS[m].long.replace(/^./, (x) => x.toUpperCase()))));
+  }
   const chartBox = h('div', {}, legend(engines, !d.capacity), h('div', { class: 'chart' }));
   const host = chartBox.lastChild;
   const side = h('div', { class: 'tbl' });
