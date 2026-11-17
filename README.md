@@ -2,7 +2,7 @@
 
 Nine key tests for choosing a 3D engine for the web: **three.js**, **PlayCanvas**, **Babylon.js**, **Babylon Lite** and **PixiJS 3D**, measured on WebGPU and WebGL2 in Chrome and Safari.
 
-**Full interactive report:** https://endel.github.io/webgpu-webgl-benchmarks/. The page is a static copy of the generated report, in `docs/index.html`. The first report (three engines, 13 scenarios) stays at [/v1/](https://endel.github.io/webgpu-webgl-benchmarks/v1/) and on [Claude](https://claude.ai/code/artifact/b2f3c482-3d9d-481e-ab0a-0d97620c09a2).
+**Full interactive report:** https://endel.github.io/webgpu-webgl-benchmarks/. The page is a static copy of the generated report, in `docs/index.html`, with `report/out/og.png` copied to `docs/og.png` for its link previews. The first report (three engines, 13 scenarios) stays at [/v1/](https://endel.github.io/webgpu-webgl-benchmarks/v1/) and on [Claude](https://claude.ai/code/artifact/b2f3c482-3d9d-481e-ab0a-0d97620c09a2).
 
 ## Results
 
