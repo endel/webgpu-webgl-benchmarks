@@ -63,6 +63,7 @@ npm run bench -- --browser chrome --profile quick       # one repeat, Chrome onl
 npm run bench -- --browser chrome,safari --profile full
 npm run bundle-size                                     # results/bundle-size.json
 npm run report                                          # report/out/index.html
+npm run share-card                                      # report/out/og.png: scoreboard pie, the link preview image
 npm test                                                # unit tests, no browser; Node 22.13+
 ```
 

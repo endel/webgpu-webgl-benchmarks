@@ -10,6 +10,7 @@
     "bench": "tsx scripts/run.ts",
     "bundle-size": "tsx scripts/bundle-size.ts",
     "report": "tsx scripts/report.ts",
+    "share-card": "tsx scripts/share-card.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-vm-modules --import tsx --test \"src/**/*.test.ts\" \"server/**/*.test.ts\" \"scripts/**/*.test.ts\""
   },
