@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { parseArgs } from 'node:util';
 import { K4_STEPS, SCENARIOS } from '../src/harness/matrix';
 import type { Variant } from '../src/harness/types';
-import { BUDGET_MS, frameCost, gpuBusy } from '../src/harness/frame-cost';
+import { BUDGET_MS, cappedByCalibration, frameCost, gpuBusy } from '../src/harness/frame-cost';
 import { gpuSampling, heapGrowth, MIN_GPU_FRAMES, notApplicable, pickAgreement, pickMajority, renderGuard } from './report-checks';
 
 const ROOT = join(import.meta.dirname, '..');
@@ -94,7 +94,7 @@ for (const s of sessions) {
   const ua = lines.find((r) => r.ua)?.ua ?? '';
   const b = browserOf(ua);
   const cal = lines.find((r) => r.params?.scenario === 'cal' && r.status === 'ok');
-  if ((cal?.frames?.interval?.p50 ?? 0) > 5) cappedBrowsers.add(b.name);
+  if (cappedByCalibration(cal?.frames?.interval?.p50)) cappedBrowsers.add(b.name);
   const canary = lines.filter((r) => r.params?.tag === 'canary' && r.status === 'ok').map((r) => r.frames?.cpu?.p50);
   // Spread, not max/min: one outlier shouldn't read as thermal drift.
   const cs = [...canary].sort((a, b) => a - b);

@@ -12,6 +12,9 @@ export const BUDGET_MS = 1000 / 60;
 /** A capped browser's interval never drops below the display period, so there it counts only past this. */
 export const CAP_SLACK_MS = 20;
 
+/** The calibration run draws nothing, so an interval past a few ms means the browser paces frames to the display. */
+export const cappedByCalibration = (intervalP50: number | null | undefined) => (intervalP50 ?? 0) > 5;
+
 type Quantiles = { p50?: number | null; p95?: number | null } | null | undefined;
 export interface FrameSummaries { cpu?: Quantiles; gpu?: Quantiles; gpuSum?: Quantiles; gpuBusy?: Quantiles; interval?: Quantiles }
 

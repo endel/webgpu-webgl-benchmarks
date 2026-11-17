@@ -102,6 +102,21 @@ test('a capacity ladder stops one level past the budget, on the frame cost the r
   assert.deepEqual(lines.filter((l) => l.status === 'skipped').map((l) => l.level), [32000]);
 });
 
+test('in a capped browser, an interval paced past the budget stops a ladder only once the report would charge it', () => {
+  const session = newSession([
+    queued('0000', 'calibration', { tag: 'calibration' }),
+    ...[2000, 4000, 8000].map((level, i) => queued(`001${i}`, 'three|webgpu|k2|naive', { level, capacity: true })),
+  ]);
+  session.nextGeneration();
+  session.take();
+  session.record({ status: 'ok', runId: '0000', frames: { cpu: { p50: 0.1, p95: 0.2 }, interval: { p50: 16.7 } } });
+  assert.equal(session.take()?.level, 2000);
+  session.record({ status: 'ok', runId: '0010', frames: { cpu: { p50: 13, p95: 14 }, interval: { p50: 19 } } });
+  assert.equal(session.take()?.level, 4000, 'CPU fits the budget and the interval is under the cap slack');
+  session.record({ status: 'ok', runId: '0011', frames: { cpu: { p50: 24, p95: 27 }, interval: { p50: 33 } } });
+  assert.equal(session.take(), null);
+});
+
 test('a ladder without a capacity stop is not stopped by a frame over the budget', () => {
   const session = newSession([2000, 4000].map((level, i) => queued(`000${i}`, 'three|webgpu|k3|naive', { level })));
   session.nextGeneration();

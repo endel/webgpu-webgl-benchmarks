@@ -2,7 +2,7 @@ import type { Plugin } from 'vite';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { frameCost } from '../src/harness/frame-cost';
+import { cappedByCalibration, frameCost } from '../src/harness/frame-cost';
 
 // Bench API, mounted on both the dev and preview servers:
 //   GET  /api/next?session=   → { url } of the next queued run, or { done: true }
@@ -36,9 +36,10 @@ const EARLY_STOP_MS = 100;
 /** One level past the 16.7 ms budget is kept, so the report can interpolate the capacity. */
 const CAPACITY_STOP_MS = 18;
 
-// A capacity ladder stops on the frame cost the report charges.
-const isSlow = (r: QueuedRun | null | undefined, result: any) =>
-  Math.max(result.frames?.interval?.p50 ?? 0, result.frames?.cpu?.p50 ?? 0) > EARLY_STOP_MS || (!!r?.capacity && frameCost(result.frames).ms > CAPACITY_STOP_MS);
+// A capacity ladder stops on the frame cost the report charges, with the same capped-browser rule.
+const isSlow = (r: QueuedRun | null | undefined, result: any, capped: boolean) =>
+  Math.max(result.frames?.interval?.p50 ?? 0, result.frames?.cpu?.p50 ?? 0) > EARLY_STOP_MS ||
+  (!!r?.capacity && frameCost(result.frames, { capped }).ms > CAPACITY_STOP_MS);
 
 export class BenchSession {
   next = 0;
@@ -89,6 +90,8 @@ export class BenchSession {
   private stopAbove = new Map<string, number>();
   /** Failed or hung at this level: skip it and everything above — failures repeat, and a hang costs a full watchdog period. */
   private stopFrom = new Map<string, number>();
+  /** Set by the calibration run, which the queue serves before any ladder. */
+  private capped = false;
 
   constructor(
     readonly id: string,
@@ -145,10 +148,11 @@ export class BenchSession {
 
   private applyStops(result: any) {
     const r = this.queue.find((q) => q.runId === result.runId);
+    if (r?.tag === 'calibration' && result.status === 'ok') this.capped = cappedByCalibration(result.frames?.interval?.p50);
     if (!r || r.tag) return;
     if (isTransient(result) && !r.retryOf) return; // its retry decides
     const broken = result.status === 'error' || isTransient(result);
-    const slow = isSlow(r, result);
+    const slow = isSlow(r, result, this.capped);
     if (broken) this.lower(this.stopFrom, r.ladder, r.level);
     else if (slow || result.status !== 'ok') this.lower(this.stopAbove, r.ladder, r.level);
   }
@@ -193,10 +197,10 @@ export class BenchSession {
     result.receivedAt = new Date().toISOString();
     this.append(result);
     const bad = result.status !== 'ok';
-    const slow = isSlow(r, result);
     if (bad) this.failed++;
     else this.completed++;
     this.applyStops(result);
+    const slow = isSlow(r, result, this.capped);
     if (r && isTransient(result) && !r.tag && !r.retryOf) this.enqueueRetry(r);
     const f = result.frames;
     const label = r ? `${r.ladder}@${r.level} r${r.repeat} ${r.mode}` : result.runId;
