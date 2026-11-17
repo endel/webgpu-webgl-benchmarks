@@ -6,48 +6,50 @@ Nine key tests for choosing a 3D engine for the web: **three.js**, **PlayCanvas*
 
 ## Results
 
-three.js r187, PlayCanvas 2.24.1, Babylon.js 9.36.0, Babylon Lite 1.39.3 and PixiJS 3D 0.1.0 were measured in Chrome 155 and Safari 26 on an Apple M1 Pro, about 1,700 runs in all, one timing repeat per cell. Numbers are Chrome on WebGPU unless noted; capacities are the largest load that fits a 60 fps frame.
+three.js r187, PlayCanvas 2.24.1, Babylon.js 9.36.0, Babylon Lite 1.39.3 and PixiJS 3D 0.1.0 were measured in Chrome 155 and Safari 26 on an Apple M1 Pro, about 3,400 runs in all, three timing repeats per cell. Numbers are Chrome on WebGPU unless noted; capacities are the largest load that fits a 60 fps frame. Bold marks the best result and any within 5% of it, the report's tie band.
 
 | Test | three.js | PlayCanvas | Babylon.js | Babylon Lite | PixiJS 3D |
 |---|---|---|---|---|---|
-| K1 Bundle, minimal app (brotli) | 172 KB | 217 KB | 422 KB | **44 KB** | 278 KB |
-| K1 Bundle with glTF, shadows, bloom | 194 KB | 272 KB | 864 KB | **192 KB** | 298 KB |
-| K1 Time to first frame, Sponza | 510 ms | **265 ms** | 964 ms | 467 ms | 363 ms |
-| K2 Moving meshes, scene graph | 2.8k | 10.1k | 2.2k | 2.5k | **≥ 64k** |
-| K2 Moving meshes, instanced | 129k | 132k | 88k | 133k | **160k** |
-| K3 Churn, typical / worst frame | 12 / 77 ms | 9.3 / 17 ms | 29 / 84 ms | 5.7 / 13 ms | **3.3 / 5.0 ms** |
-| K4 Sponza + shadows + 31 lights + bloom | 34 ms | **5.1 ms** | 7.1 ms | 5.3 ms | 6.9 ms |
-| K4 Sponza with 256 lights | **8.1 ms** | 25 ms | 19 ms | 13 ms | n/a |
-| K5 World of 100k meshes, default | 29 ms | 19 ms | 67 ms | failed | **1.0 ms** |
-| K5 World of 100k meshes, static path | 7.2 ms | 5.1 ms | 8.9 ms | 3.3 ms | **1.0 ms** |
-| K6 Skinned characters, crossfading | 609 | 650 | 390 | **≥ 800** | **≥ 800** |
-| K6 Skinned crowd path, single clip (no crossfade) | n/a | n/a | **≥ 3,200** | **≥ 3,200** | n/a |
-| K7 Sorted transparent meshes | 2.4k | 6.8k | 1.9k | 2.9k | **30.6k** |
-| K7 Compute, 1M particles | 16 ms | **11 ms** | 15 ms | 13 ms | n/a |
-| K8 Pick among 10k meshes | 0.92 ms | 18 ms | 6.8 ms | 3.6 ms | **0.47 ms** |
-| K8 Pick on a 1M-triangle mesh | 47 ms | **0.91 ms** | 22 ms | 23 ms | 7.9 ms |
-| K9 HUD nameplates over 3D | ≥ 16k* | 546 | 399 | 2.1k | **9.7k** |
+| K1 Bundle, minimal app (brotli) | 172 KB | 217 KB | 422 KB | **44 KB** | 227 KB |
+| K1 Bundle with glTF, shadows, bloom | **194 KB** | 272 KB | 864 KB | **192 KB** | 263 KB |
+| K1 Time to first frame, Sponza | 289 ms | **234 ms** | 409 ms | **240 ms** | 297 ms |
+| K2 Moving meshes, scene graph | 2.5k | 9.4k | 2.3k | 3.3k | **65.8k** |
+| K2 Moving meshes, instanced | 123k | **128k** | 86.6k | **132.9k** | **127k** |
+| K3 Churn, typical / worst frame | 13 / 41 ms | 9.8 / 16 ms | 30 / 65 ms | 4.4 / 6.7 ms | **3.6 / 5.2 ms** |
+| K4 Sponza + shadows + 31 lights + bloom | 46 ms | 5.1 ms | 6.5 ms | 5.4 ms | **4.3 ms** |
+| K4 Sponza with 256 lights | **8.0 ms** | 16 ms | 13 ms | 13 ms | n/a |
+| K5 World of 100k meshes, default | 33 ms | 19 ms | 74 ms | over budget | **2.4 ms** |
+| K5 World of 100k meshes, static path | 7.1 ms | 5.3 ms | 9.6 ms | **2.1 ms** | 2.4 ms |
+| K6 Skinned characters, crossfading | 545 | 593 | 359 | 926 | **2.9k** |
+| K6 Skinned crowd, single clip (no crossfade) | 621 | 634 | **32.8k** | ≥ 6.4k† | 4.1k |
+| K7 Sorted transparent meshes | 2.4k | 6.8k | 2k | 3k | **15.9k** |
+| K7 Compute, 1M particles | **7.4 ms** | **7.2 ms** | **7.2 ms** | 9.7 ms | n/a |
+| K8 Pick among 10k meshes | 0.69 ms | 17 ms | 7.5 ms | 4.5 ms | **0.48 ms** |
+| K8 Pick on a 1M-triangle mesh | 48 ms | **1.9 ms** | 22 ms | 23 ms | 7.9 ms |
+| K9 HUD nameplates over 3D | ≥ 16k* | 547 | 393 | 2.6k | **9k** |
+| K9 HUD nameplates, best HUD path | ≥ 16k* | 1.7k | 393 | 2.6k | **9k** |
 
 \* three.js has no UI layer; this is a hand-written quad batcher with canvas text.
+† The next level, 12,800 characters, needs a 25,600-texel animation texture, past the GPU's 16,384 limit.
 
 ### Takeaways
 
-1. **Instance anything you repeat.** Every engine holds 88k–160k moving meshes once instanced; with one node per object the spread is 2.2k to 64k.
-2. **PixiJS 3D batches ordinary meshes for you.** It draws 1,000 separate meshes in 130 calls, which is why it leads the per-object, transparency and large-world tests. It is a 0.1 release: no clustered lights (32 per view), no compute, no separate baked or instanced crowd path (its default path already batches skinned characters: 800 in 3 draw calls).
-3. **Babylon Lite is a tenth of Babylon.js's download** and has the fast paths (baked crowds, GPU-culled instances, compute, GPU picking), but it is WebGPU-only and does not frustum-cull ordinary meshes: a naive 100k-mesh world never finished a frame.
-4. **Past a handful of lights, use a clustered path.** three.js spends 70 ms on 31 forward lights and 8 ms on 256 clustered ones.
-5. **Engine UI is not free.** 500 nameplates cost 13 ms a frame in PlayCanvas and 10 ms in Babylon.js; PixiJS 3D's native 2D adds under 1 ms.
-6. **WebGPU isn't automatically faster.** three.js's WebGLRenderer sustains 9.0k per-object meshes against 2.8k for its WebGPURenderer; Babylon.js is also ahead on WebGL2.
-7. **Test Safari early.** Babylon.js's per-object cost is about 4× higher there (590 meshes against 2.2k), and two of its WebGPU runs failed and passed on a repeat.
+1. **Instance anything you repeat.** Every engine holds 87k–133k moving meshes once instanced; with one node per object the spread is 2.3k to 66k.
+2. **PixiJS 3D batches ordinary meshes for you.** It draws 1,000 separate meshes in 130 calls, which is why it leads the per-object, transparency, crowd and large-world tests. It is a 0.1 release: no clustered lights (32 per view), no compute, no separate baked or instanced crowd path (its default path already batches skinned characters: 800 in 3 draw calls).
+3. **Babylon Lite is a tenth of Babylon.js's download** and has the fast paths (baked crowds, GPU-culled instances, compute, GPU picking), but it is WebGPU-only and does not frustum-cull ordinary meshes: a naive 20k-mesh world takes 296 ms a frame.
+4. **Past a handful of lights, use a clustered path.** three.js spends 45 ms on 31 forward lights and 8 ms on 256 clustered ones.
+5. **Engine UI is not free.** 500 nameplates cost 13 ms a frame in PlayCanvas and 11 ms in Babylon.js; PixiJS 3D's and Babylon Lite's 2D add about 1 ms. PlayCanvas's batch groups triple its count.
+6. **WebGPU isn't automatically faster.** three.js's WebGLRenderer sustains 9.1k per-object meshes against 2.5k for its WebGPURenderer; Babylon.js is also ahead on WebGL2.
+7. **Test Safari early.** Babylon.js's per-object cost is 4–6× higher there (541 meshes against 2.3k), spawning costs it 220 ms a frame, and its 31-light Sponza takes 198 ms on Safari's WebGPU.
 
 **Which to pick:**
 - **PixiJS 3D** if the app is many objects plus a 2D interface and you can live with a 0.1 feature set.
 - **PlayCanvas** for a lit scene that loads fast and stays cheap with shadows, lights and post; avoid its element UI for hundreds of moving items.
 - **three.js** for the smallest mature download and the biggest ecosystem. Instance heavily, and use its clustered lighting add-on on WebGPU.
 - **Babylon Lite** for WebGPU-only projects that want Babylon's fast paths at a small size, built around thin instances.
-- **Babylon.js** for the richest built-in feature set (it ran every test on both backends), at the highest per-object, spawning and download cost.
+- **Babylon.js** for the richest built-in feature set (it ran every test on both backends) and by far the biggest baked crowds, at the highest per-object, spawning and download cost.
 
-All numbers come from one machine and one repeat. Other GPUs and operating systems will rank differently.
+All numbers come from one machine. Other GPUs and operating systems will rank differently.
 
 Every engine renders the same deterministic scenes: identical geometry, transforms, materials, lights, camera and HUD layout, all generated from a seeded RNG. The harness owns the only `requestAnimationFrame` loop, and every page load measures exactly one configuration.
 
@@ -118,7 +120,7 @@ Nine tests, each answering one question you would ask before choosing an engine.
 | K3 | Lifecycle churn | What does spawning cost? 20 of 2,000 meshes are destroyed and recreated every frame, each with a new material and texture | 2,000 live | naive |
 | K4 | Lit game frame | Sponza with features stacked: base → cascaded shadows → 31 point lights → bloom → 256 lights. The fly-through visits 60 fixed camera poses | 5 steps | naive |
 | K5 | Large world visibility | Does cost follow what exists or what is visible? ~2,000 meshes in view either way. The camera turn visits 60 fixed poses | 20k, 100k | naive, optimized |
-| K6 | Skinned characters | Fox crowd, every character crossfading two clips. Optimized plays one clip without the crossfade, so it is a lighter workload | 25 → 3,200 (optimized 200 → 3,200) | naive, optimized |
+| K6 | Skinned characters | Fox crowd, every character crossfading two clips. Optimized plays one clip without the crossfade, so it is a lighter workload | 25 → 6,400 (optimized 200 → 51,200) | naive, optimized |
 | K7 | Transparency and particles | Sorted alpha-blended meshes; a million compute particles (WebGPU) | 500 → 64k; 1M | naive |
 | K8 | Picking | Cost of one pick through the engine's API | 10k meshes; one 1M-triangle mesh | naive, optimized |
 | K9 | HUD over 3D | Panels, icons, per-frame text and moving nameplates drawn with the engine's own 2D stack over 1,000 meshes | 0 → 16k nameplates (optimized 250 → 16k) | naive, optimized |
