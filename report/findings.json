@@ -5,7 +5,7 @@
   },
   {
     "title": "Instancing still makes the engine choice almost irrelevant",
-    "body": "Through each engine's instancing or batching path, with the hierarchy flattened by hand, all five sustain between 87,000 and 133,000 moving meshes at 60 fps in Chrome on WebGPU. That is 14 to 49 times what three.js, PlayCanvas, Babylon.js and Babylon Lite manage with one scene-graph node per object."
+    "body": "Through each engine's instancing or batching path, with the hierarchy flattened by hand, all five sustain between 87,000 and 133,000 moving meshes at 60 fps in Chrome on WebGPU. That is 14 to 49 times what three.js, PlayCanvas, Babylon.js and Babylon Lite manage with one scene-graph node per object. Defold is the exception: 1.13.1 cannot draw instanced models on WebGPU, so it holds 3,600 there, and on WebGL2 its instances are still game objects moved from Lua (10,800, against 99,000 and more for the others' WebGL2 renderers)."
   },
   {
     "title": "Spawning is where Babylon.js hurts",
@@ -33,7 +33,11 @@
   },
   {
     "title": "Babylon Lite ships a tenth of Babylon.js",
-    "body": "A minimal lit-cube app is 44 KB of brotli-compressed JavaScript with Babylon Lite, 104 KB with three.js's WebGLRenderer, 172 KB with its WebGPURenderer, 217 KB with PlayCanvas, 227 KB with PixiJS 3D and 422 KB with Babylon.js, counting every chunk each build emits. With glTF, animation, shadows and bloom, Lite and three.js both land near 195 KB and Babylon.js at 864 KB. Babylon.js is also the slowest to a first frame (313 ms for the cube against 48 to 66 ms for the others)."
+    "body": "A minimal lit-cube app is 44 KB of brotli-compressed JavaScript with Babylon Lite, 104 KB with three.js's WebGLRenderer, 172 KB with its WebGPURenderer, 217 KB with PlayCanvas, 227 KB with PixiJS 3D and 422 KB with Babylon.js, counting every chunk each build emits. With glTF, animation, shadows and bloom, Lite and three.js both land near 195 KB and Babylon.js at 864 KB. Babylon.js is also the slowest to a first frame (313 ms for the cube against 48 to 66 ms for the others). Defold's engine is a fixed 0.8 MB on either backend (0.9 MB with glTF, animation, shadows and bloom), all of it downloaded before the first frame."
+  },
+  {
+    "title": "Defold: a fixed 0.8 MB engine, fast picks, a high price per object",
+    "body": "Defold 1.13.1 runs from one build per backend: its stock WebGL2 engine, and the WebGPU one its editor builds from an app manifest. Either downloads about 0.8 MB before the first frame and draws the lit cube in 156 ms in Chrome on WebGL2 (267 ms on WebGPU), against 47 to 76 ms for three.js, PlayCanvas and PixiJS 3D. Every mesh is a game object moved from Lua: it holds 3,600 moving scene-graph meshes on WebGPU and 2,400 on WebGL2, where three.js's WebGLRenderer holds 9,100. Its physics ray casts pick among 10,000 meshes in 0.03 ms. They hit collision shapes rather than triangles, though: they agree with the exact pick on 53 of 64 points, and it cannot pick on a triangle mesh. On WebGL2 its instanced path holds 10,800 meshes and its GPU-skinned, instanced crowd 7,100 Foxes, second to Babylon.js's baked crowd (15,400). Its WebGPU backend is younger: it cannot draw instanced models yet, its GPU skinning fails WebGPU validation, so the crowd skins on the CPU and stops at 348 Foxes, and creating textures every frame costs 0.6 s a frame against 8 ms on WebGL2. Defold ships Lambert-only lights and no shadows or post-processing, so the Sponza steps that need them use render-script code written for this benchmark and are shown unranked, and a model plays one animation at a time, so the crossfading crowd is not applicable. Its GUI holds 1,500 moving nameplates on WebGPU (519 on WebGL2), 2,900 once its nodes are grouped in layers. Defold was measured in its own sessions two days after the others: in Safari the drift-check cell ran 7–8% faster than in the main run, so its Safari numbers may read up to that much better."
   },
   {
     "title": "WebGPU is still not automatically faster",

@@ -1,6 +1,6 @@
 # webgpu-webgl-benchmarks
 
-Nine key tests for choosing a 3D engine for the web: **three.js**, **PlayCanvas**, **Babylon.js**, **Babylon Lite** and **PixiJS 3D**, measured on WebGPU and WebGL2 in Chrome and Safari.
+Nine key tests for choosing a 3D engine for the web: **three.js**, **PlayCanvas**, **Babylon.js**, **Babylon Lite**, **PixiJS 3D** and **Defold**, measured on WebGPU and WebGL2 in Chrome and Safari.
 
 **Full interactive report:** https://endel.github.io/webgpu-webgl-benchmarks/. The page is a static copy of the generated report, in `docs/index.html`, with `report/out/og.png` copied to `docs/og.png` for its link previews. The first report (three engines, 13 scenarios) stays at [/v1/](https://endel.github.io/webgpu-webgl-benchmarks/v1/) and on [Claude](https://claude.ai/code/artifact/b2f3c482-3d9d-481e-ab0a-0d97620c09a2).
 
@@ -8,41 +8,46 @@ Nine key tests for choosing a 3D engine for the web: **three.js**, **PlayCanvas*
 
 [![Benchmarks won per engine in Chrome on WebGPU](docs/og.png)](https://endel.github.io/webgpu-webgl-benchmarks/)
 
-three.js r187, PlayCanvas 2.24.1, Babylon.js 9.36.0, Babylon Lite 1.39.3 and PixiJS 3D 0.1.0 were measured in Chrome 155 and Safari 26 on an Apple M1 Pro, about 3,400 runs in all, three timing repeats per cell. Numbers are Chrome on WebGPU unless noted; capacities are the largest load that fits a 60 fps frame. Bold marks the best result and any within 5% of it, the report's tie band.
+three.js r187, PlayCanvas 2.24.1, Babylon.js 9.36.0, Babylon Lite 1.39.3 and PixiJS 3D 0.1.0 were measured in Chrome 155 and Safari 26 on an Apple M1 Pro, about 3,400 runs in all, three timing repeats per cell. Defold 1.13.1 was measured two days later in its own sessions on the same machine, from one build per backend. Its Chrome drift-check cell landed within 3% of the first run; in Safari it ran 7–8% faster, so Defold's Safari numbers may read up to that much better. Numbers are Chrome on WebGPU unless noted; capacities are the largest load that fits a 60 fps frame. Bold marks the best result and any within 5% of it, the report's tie band.
 
-| Test | three.js | PlayCanvas | Babylon.js | Babylon Lite | PixiJS 3D |
-|---|---|---|---|---|---|
-| K1 Bundle, minimal app (brotli) | 172 KB | 217 KB | 422 KB | **44 KB** | 227 KB |
-| K1 Bundle with glTF, shadows, bloom | **194 KB** | 272 KB | 864 KB | **192 KB** | 263 KB |
-| K1 Time to first frame, Sponza | 289 ms | **234 ms** | 409 ms | **240 ms** | 297 ms |
-| K2 Moving meshes, scene graph | 2.5k | 9.4k | 2.3k | 3.3k | **65.8k** |
-| K2 Moving meshes, instanced | 123k | **128k** | 86.6k | **132.9k** | **127k** |
-| K3 Churn, typical / worst frame | 13 / 41 ms | 9.8 / 16 ms | 30 / 65 ms | 4.4 / 6.7 ms | **3.6 / 5.2 ms** |
-| K4 Sponza + shadows + 31 lights + bloom | 46 ms | 5.1 ms | 6.5 ms | 5.4 ms | **4.3 ms** |
-| K4 Sponza with 256 lights | **8.0 ms** | 16 ms | 13 ms | 13 ms | n/a |
-| K5 World of 100k meshes, default | 33 ms | 19 ms | 74 ms | over budget | **2.4 ms** |
-| K5 World of 100k meshes, static path | 7.1 ms | 5.3 ms | 9.6 ms | **2.1 ms** | 2.4 ms |
-| K6 Skinned characters, crossfading | 545 | 593 | 359 | 926 | **2.9k** |
-| K6 Skinned crowd, single clip (no crossfade) | 621 | 634 | **32.8k** | ≥ 6.4k† | 4.1k |
-| K7 Sorted transparent meshes | 2.4k | 6.8k | 2k | 3k | **15.9k** |
-| K7 Compute, 1M particles | **7.4 ms** | **7.2 ms** | **7.2 ms** | 9.7 ms | n/a |
-| K8 Pick among 10k meshes | 0.69 ms | 17 ms | 7.5 ms | 4.5 ms | **0.48 ms** |
-| K8 Pick on a 1M-triangle mesh | 48 ms | **1.9 ms** | 22 ms | 23 ms | 7.9 ms |
-| K9 HUD nameplates over 3D | ≥ 16k* | 547 | 393 | 2.6k | **9k** |
-| K9 HUD nameplates, best HUD path | ≥ 16k* | 1.7k | 393 | 2.6k | **9k** |
+| Test | three.js | PlayCanvas | Babylon.js | Babylon Lite | PixiJS 3D | Defold |
+|---|---|---|---|---|---|---|
+| K1 Bundle, minimal app (brotli) | 172 KB | 217 KB | 422 KB | **44 KB** | 227 KB | 803 KB |
+| K1 Bundle with glTF, shadows, bloom | **194 KB** | 272 KB | 864 KB | **192 KB** | 263 KB | 896 KB |
+| K1 Time to first frame, Sponza | 289 ms | **234 ms** | 409 ms | **240 ms** | 297 ms | 1,483 ms‡ |
+| K2 Moving meshes, scene graph | 2.5k | 9.4k | 2.3k | 3.3k | **65.8k** | 3.6k |
+| K2 Moving meshes, instanced | 123k | **128k** | 86.6k | **132.9k** | **127k** | 3.6k◊ |
+| K3 Churn, typical / worst frame | 13 / 41 ms | 9.8 / 16 ms | 30 / 65 ms | 4.4 / 6.7 ms | **3.6 / 5.2 ms** | 638 / 813 ms |
+| K4 Sponza + shadows + 31 lights + bloom | 46 ms | 5.1 ms | 6.5 ms | 5.4 ms | **4.3 ms** | 6.3 ms§ |
+| K4 Sponza with 256 lights | **8.0 ms** | 16 ms | 13 ms | 13 ms | n/a | n/a |
+| K5 World of 100k meshes, default | 33 ms | 19 ms | 74 ms | over budget | **2.4 ms** | 68 ms |
+| K5 World of 100k meshes, static path | 7.1 ms | 5.3 ms | 9.6 ms | **2.1 ms** | 2.4 ms | 68 ms◊ |
+| K6 Skinned characters, crossfading | 545 | 593 | 359 | 926 | **2.9k** | n/a |
+| K6 Skinned crowd, single clip (no crossfade) | 621 | 634 | **32.8k** | ≥ 6.4k† | 4.1k | 348◊ |
+| K7 Sorted transparent meshes | 2.4k | 6.8k | 2k | 3k | **15.9k** | 3.7k |
+| K7 Compute, 1M particles | **7.4 ms** | **7.2 ms** | **7.2 ms** | 9.7 ms | n/a | n/a |
+| K8 Pick among 10k meshes | 0.69 ms | 17 ms | 7.5 ms | 4.5 ms | 0.48 ms | **0.03 ms**¶ |
+| K8 Pick on a 1M-triangle mesh | 48 ms | **1.9 ms** | 22 ms | 23 ms | 7.9 ms | n/a |
+| K9 HUD nameplates over 3D | ≥ 16k* | 547 | 393 | 2.6k | **9k** | 1.5k |
+| K9 HUD nameplates, best HUD path | ≥ 16k* | 1.7k | 393 | 2.6k | **9k** | 2.9k |
 
 \* three.js has no UI layer; this is a hand-written quad batcher with canvas text.
 † The next level, 12,800 characters, needs a 25,600-texel animation texture, past the GPU's 16,384 limit.
+‡ Defold's archive would hold Sponza's textures uncompressed, so the page decodes the JPEGs and builds their mip chains on the CPU, as Defold has no runtime mipmap generation.
+§ Defold has no shadows, point lights or bloom built in: this is render-script code written for this benchmark, shown unranked in the report.
+¶ Defold picks through physics ray casts against collision shapes, which agree with the exact pick on 53 of 64 points; it has no triangle-mesh collider.
+◊ Defold 1.13.1's WebGPU backend cannot draw instanced models, and its GPU skinning fails WebGPU validation, so its default path stands for the instanced rows and the crowd skins on the CPU. On its WebGL2 build the same rows read 10.8k instanced meshes, 61 ms for the static world and 7.1k skinned characters; creating textures every frame (K3) costs it 8 ms there instead of 0.6 s.
 
 ### Takeaways
 
-1. **Instance anything you repeat.** Every engine holds 87k–133k moving meshes once instanced; with one node per object the spread is 2.3k to 66k.
+1. **Instance anything you repeat.** Every WebGPU engine holds 87k–133k moving meshes once instanced; with one node per object the spread is 2.3k to 66k. Defold is the exception: 1.13.1 cannot instance on WebGPU at all (3.6k), and on WebGL2 its instances are still game objects moved from Lua (10.8k).
 2. **PixiJS 3D batches ordinary meshes for you.** It draws 1,000 separate meshes in 130 calls, which is why it leads the per-object, transparency, crowd and large-world tests. It is a 0.1 release: no clustered lights (32 per view), no compute, no separate baked or instanced crowd path (its default path already batches skinned characters: 800 in 3 draw calls).
 3. **Babylon Lite is a tenth of Babylon.js's download** and has the fast paths (baked crowds, GPU-culled instances, compute, GPU picking), but it is WebGPU-only and does not frustum-cull ordinary meshes: a naive 20k-mesh world takes 296 ms a frame.
 4. **Past a handful of lights, use a clustered path.** three.js spends 45 ms on 31 forward lights and 8 ms on 256 clustered ones.
 5. **Engine UI is not free.** 500 nameplates cost 13 ms a frame in PlayCanvas and 11 ms in Babylon.js; PixiJS 3D's and Babylon Lite's 2D add about 1 ms. PlayCanvas's batch groups triple its count.
 6. **WebGPU isn't automatically faster.** three.js's WebGLRenderer sustains 9.1k per-object meshes against 2.5k for its WebGPURenderer; Babylon.js is also ahead on WebGL2.
 7. **Test Safari early.** Babylon.js's per-object cost is 4–6× higher there (541 meshes against 2.3k), spawning costs it 220 ms a frame, and its 31-light Sponza takes 198 ms on Safari's WebGPU.
+8. **Defold is a game engine first, and its WebGPU backend is young.** Its fixed ~0.8 MB engine picks in 0.03 ms through physics, but every mesh costs a game object (3.6k moving meshes on WebGPU, 2.4k on WebGL2), and lighting, shadows and post-processing are yours to write. Its WebGL2 build draws a GPU-skinned, instanced crowd of 7.1k Foxes; on WebGPU, 1.13.1 has no instancing and no working GPU skinning (348 Foxes), and per-frame texture creation takes 0.6 s.
 
 **Which to pick:**
 - **PixiJS 3D** if the app is many objects plus a 2D interface and you can live with a 0.1 feature set.
@@ -50,6 +55,7 @@ three.js r187, PlayCanvas 2.24.1, Babylon.js 9.36.0, Babylon Lite 1.39.3 and Pix
 - **three.js** for the smallest mature download and the biggest ecosystem. Instance heavily, and use its clustered lighting add-on on WebGPU.
 - **Babylon Lite** for WebGPU-only projects that want Babylon's fast paths at a small size, built around thin instances.
 - **Babylon.js** for the richest built-in feature set (it ran every test on both backends) and by far the biggest baked crowds, at the highest per-object, spawning and download cost.
+- **Defold** for a game built in its editor and Lua, where a 0.8 MB engine is acceptable; ship its WebGL2 build, which has the instancing and GPU skinning its WebGPU backend lacks in 1.13.1, and plan to write the 3D lighting, shadows and post-processing yourself.
 
 All numbers come from one machine. Other GPUs and operating systems will rank differently.
 
@@ -87,10 +93,20 @@ npm test                                                # unit tests, no browser
 | `--restart-every N` | Relaunch the browser after N runs (default 50, 0 = never); the prime runs replay after each launch |
 | `--timeout S` | Restart the browser when a run sends nothing for S seconds (default 150) |
 
+**Defold.** Defold 1.13.1 runs only when `--only` names it, since its bundles need a separate build: one per backend, the WebGPU one with the app manifest Defold's editor writes for HTML5 graphics "WebGPU". The published Defold numbers come from their own sessions, merged into the report with the other engines' sessions:
+
+```sh
+npm run build-defold                                    # defold/ → public/defold[-sponza][-webgpu], K1 apps (bob, pinned)
+npm run bench -- --browser chrome,safari --profile full --only "engine=defold"
+npm run report -- --sessions <the other engines' sessions>,<the Defold sessions>
+```
+
+The build needs Java 21+ (`JAVA_HOME`, `java` on `PATH`, or the JDK inside Defold.app) and the assets from `npm run fetch-assets`. The scene data reaches Lua through a small native extension (`defold/bench_bridge`), so bob uploads the project to Defold's build server (build.defold.com, or `DEFOLD_BUILD_SERVER`) to compile the engine; the K1 bundle-size apps (`defold/apps`) use the stock engine on WebGL2 and the manifest-built one on WebGPU. The adapter runs Defold's main-loop callback inside the harness's frame, so one harness frame is one engine frame. Sponza ships in its own bundle, since Defold downloads its whole archive at boot.
+
 **Browser setup.**
 - **Chrome** runs from its installed binary with a throwaway profile, with vsync and the frame-rate limit disabled and unquantized WebGPU timestamps enabled. It also runs with `--js-flags=--expose-gc`, so the page can force a garbage collection before each memory snapshot.
 - **Firefox** is still supported by the runner (`--browser firefox`) but is no longer part of the published matrix.
-- **Safari** is opened with `open -a Safari`. Keep its window frontmost and dismiss any first-run or automation prompts before a session.
+- **Safari** is opened with `open -a Safari`. Keep its window frontmost and dismiss any first-run or automation prompts before a session. On macOS the runner keeps the display awake for the whole session (`caffeinate`), since a locked screen stops Safari's frames; start it with the screen unlocked.
 
 A watchdog restarts the browser if a run goes silent for 150 s (`--timeout`). Cells slower than 250 ms per frame stop measuring after 5 frames, except K4 and K5, which always measure whole laps of their camera path.
 
@@ -104,7 +120,8 @@ src/engines/<engine>/        one EngineAdapter per engine, one file per scene ki
 src/minimal/<engine>.ts      smallest lit-cube app per engine (bundle size only)
 src/realistic/<engine>.ts    glTF + animation + shadows + bloom app per engine (bundle size only)
 server/api.ts                run queue + result sink (Vite middleware)
-scripts/                     fetch-assets, run, bundle-size, report
+defold/                      Defold project for the defold adapter: Lua scene builder, PBR material, bridge extension
+scripts/                     fetch-assets, build-defold, run, bundle-size, report
 results/<session>/           results.jsonl (one line per run) + screenshots
 report/                      template.html, findings.json + generated out/
 docs/index.html              published copy of the report (GitHub Pages)
@@ -151,6 +168,7 @@ K1's bundle total is the initial chunks plus every lazy chunk reachable from the
 | Babylon.js | yes | yes |
 | Babylon Lite | yes | none |
 | PixiJS 3D | yes | yes |
+| Defold | yes | yes |
 
 ## What is measured
 
@@ -191,6 +209,7 @@ K1's bundle total is the initial chunks plus every lazy chunk reachable from the
 - Every engine renders at 1920×1080 device pixels, with 4× MSAA, ACES tone mapping, sRGB output and an opaque canvas, from production builds.
 - Light units are calibrated so screenshots match: three.js and Babylon.js divide Lambert diffuse by π, PlayCanvas does not.
 - Babylon Lite has no ACES tone mapping, so its exposure is matched instead.
+- Defold has no PBR material, tone mapping or sRGB textures: its scenes use a metal/rough material written for this benchmark (`defold/materials`), with three.js's ACES curve and sRGB decoding in the shader. Custom materials are how Defold does 3D, so they count as its naive path; the render-script shadows, point lights and bloom do not, and are shown unranked. On WebGPU, 1.13.1's backend needs workarounds that change no result: shadow depth packed into an RGBA8 strip placed by the cascades' projections (it cannot sample depth textures or offset viewports in a render target), and one degenerate triangle on Sponza's odd-length index lists (it rejects them).
 
 ## Known caveats
 
