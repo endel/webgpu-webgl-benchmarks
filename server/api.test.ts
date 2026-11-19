@@ -117,6 +117,14 @@ test('in a capped browser, an interval paced past the budget stops a ladder only
   assert.equal(session.take(), null);
 });
 
+test('a level that is not applicable does not stop the levels above it', () => {
+  const session = newSession([1, 10000].map((level, i) => queued(`000${i}`, 'defold|webgl2|k8|naive', { level })));
+  session.nextGeneration();
+  session.take();
+  session.record({ status: 'error', runId: '0000', error: 'N/A: no triangle-mesh collision shape' });
+  assert.equal(session.take()?.level, 10000);
+});
+
 test('a ladder without a capacity stop is not stopped by a frame over the budget', () => {
   const session = newSession([2000, 4000].map((level, i) => queued(`000${i}`, 'three|webgpu|k3|naive', { level })));
   session.nextGeneration();

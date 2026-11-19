@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { cappedByCalibration, frameCost } from '../src/harness/frame-cost';
+import { notApplicable } from '../scripts/report-checks';
 
 // Bench API, mounted on both the dev and preview servers:
 //   GET  /api/next?session=   → { url } of the next queued run, or { done: true }
@@ -151,6 +152,8 @@ export class BenchSession {
     if (r?.tag === 'calibration' && result.status === 'ok') this.capped = cappedByCalibration(result.frames?.interval?.p50);
     if (!r || r.tag) return;
     if (isTransient(result) && !r.retryOf) return; // its retry decides
+    // N/A is about this level's workload alone (K8's dense mesh, not its 10k field)
+    if (result.status === 'error' && notApplicable(result.error)) return;
     const broken = result.status === 'error' || isTransient(result);
     const slow = isSlow(r, result, this.capped);
     if (broken) this.lower(this.stopFrom, r.ladder, r.level);
