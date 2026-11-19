@@ -291,6 +291,8 @@ if (!args['no-build']) {
   console.log('building…');
   await build({ root: ROOT, logLevel: 'warn', build: { outDir } });
 }
+// Unattended sessions: a sleeping display locks the screen, and then Safari stops rendering frames.
+if (process.platform === 'darwin') spawn('caffeinate', ['-d', '-i', '-w', String(process.pid)], { stdio: 'ignore' }).unref();
 const server = await preview({ root: ROOT, build: { outDir }, preview: { port: PORT, strictPort: true }, logLevel: 'warn' });
 try {
   if (args.resume) await runSession(resumeSession(args.resume));
