@@ -1,0 +1,30 @@
+#version 140
+
+// The Fox has no normals: pbr_tex_flat.fp derives flat ones, as glTF requires.
+
+in highp vec4 position;
+in mediump vec2 texcoord0;
+in mediump vec4 bone_weights;
+in mediump vec4 bone_indices;
+
+// per-instance: mtx_world as an attribute turns on Defold's automatic instancing
+in highp mat4 mtx_world;
+in highp vec4 animation_data;
+
+out highp vec3 var_world_pos;
+out mediump vec2 var_texcoord0;
+
+uniform vs_uniforms
+{
+    highp mat4 mtx_viewproj;
+};
+
+#include "/builtins/materials/skinning.glsl"
+
+void main()
+{
+    vec4 wp = mtx_world * vec4(get_skinned_position(position).xyz, 1.0);
+    var_world_pos = wp.xyz;
+    var_texcoord0 = texcoord0;
+    gl_Position = mtx_viewproj * wp;
+}

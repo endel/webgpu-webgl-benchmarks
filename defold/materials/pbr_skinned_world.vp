@@ -1,0 +1,22 @@
+#version 140
+
+// World-space skinned material: Defold skins and transforms these vertices on the CPU. K6 uses it on
+// WebGPU, where 1.13.1's GPU skinning binds its RGBA32F bone texture as filterable and fails validation.
+
+in highp vec4 position;
+in mediump vec2 texcoord0;
+
+out highp vec3 var_world_pos;
+out mediump vec2 var_texcoord0;
+
+uniform vs_uniforms
+{
+    highp mat4 mtx_viewproj;
+};
+
+void main()
+{
+    var_world_pos = position.xyz;
+    var_texcoord0 = texcoord0;
+    gl_Position = mtx_viewproj * vec4(position.xyz, 1.0);
+}

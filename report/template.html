@@ -1,10 +1,10 @@
 <title>WebGPU Engine Bench</title>
-<meta name="description" content="Nine key tests for choosing a web 3D engine: three.js, PlayCanvas, Babylon.js, Babylon Lite and PixiJS 3D on WebGPU and WebGL2.">
+<meta name="description" content="Nine key tests for choosing a web 3D engine: three.js, PlayCanvas, Babylon.js, Babylon Lite, PixiJS 3D and Defold on WebGPU and WebGL2.">
 <!-- docs/og.png comes from `npm run share-card`; link previews need its absolute URL. -->
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://endel.github.io/webgpu-webgl-benchmarks/">
 <meta property="og:title" content="WebGPU Engine Bench">
-<meta property="og:description" content="Nine key tests for choosing a web 3D engine: three.js, PlayCanvas, Babylon.js, Babylon Lite and PixiJS 3D on WebGPU and WebGL2.">
+<meta property="og:description" content="Nine key tests for choosing a web 3D engine: three.js, PlayCanvas, Babylon.js, Babylon Lite, PixiJS 3D and Defold on WebGPU and WebGL2.">
 <meta property="og:image" content="https://endel.github.io/webgpu-webgl-benchmarks/og.png">
 <meta property="og:image:width" content="3200">
 <meta property="og:image:height" content="1800">
@@ -31,6 +31,7 @@
     --e-babylon: #1baf7a;
     --e-babylon-lite: #eda100;
     --e-pixi3d: #e87ba4;
+    --e-defold: #9b82ec;
     --e-three-classic: #8d938e;
     --critical: #d03b3b;
     --good-ink: #006300;
@@ -57,6 +58,7 @@
       --e-babylon: #199e70;
       --e-babylon-lite: #c98500;
       --e-pixi3d: #d55181;
+      --e-defold: #7c5fd6;
       --e-three-classic: #7b817d;
       --good-ink: #0ca30c;
       --sel: #eef1ee;
@@ -79,6 +81,7 @@
     --e-babylon: #199e70;
       --e-babylon-lite: #c98500;
       --e-pixi3d: #d55181;
+      --e-defold: #7c5fd6;
     --e-three-classic: #7b817d;
     --good-ink: #0ca30c;
     --sel: #eef1ee;
@@ -178,8 +181,8 @@
 
   .board td { padding-block: 9px; }
   .board td { padding-left: 10px; }
-  .board td:first-child { white-space: normal; min-width: 230px; }
-  .board .meter { width: 48px; margin-left: 8px; }
+  .board td:first-child { white-space: normal; min-width: 200px; }
+  .board .meter { width: 32px; margin-left: 6px; }
   .board td.best { font-weight: 650; background: color-mix(in oklab, var(--c, var(--wash)) 15%, transparent); }
   .board td a { text-decoration: none; }
   .board td a:hover { text-decoration: underline; }
@@ -394,9 +397,12 @@ const ENG = {
   babylon: { label: 'Babylon.js', color: 'var(--e-babylon)' },
   'babylon-lite': { label: 'Babylon Lite', color: 'var(--e-babylon-lite)' },
   pixi3d: { label: 'PixiJS 3D', color: 'var(--e-pixi3d)' },
+  defold: { label: 'Defold', color: 'var(--e-defold)' },
 };
 // three.js is one column: WebGPURenderer on WebGPU, the classic WebGLRenderer on WebGL2.
 const eid = (e, backend) => (e === 'three' && backend === 'webgl2' ? 'three-classic' : e);
+// Defold ships one engine per backend, so its bundle sizes differ by backend while its runs share one id
+const bundleId = (e, backend) => (e === 'defold' && backend === 'webgpu' ? 'defold-webgpu' : eid(e, backend));
 const MAIN = Object.keys(ENG).filter((e) => DATA.cells.some((c) => c.engine === e));
 const supports = (e, backend) => !(e === 'babylon-lite' && backend === 'webgl2');
 document.documentElement.style.setProperty('--n', MAIN.length);
@@ -505,6 +511,8 @@ const enginesFor = (d, backend = state.backend) => (d.backends.includes(backend)
 const AS_NAIVE = 'No separate optimized path: the default path is this engine\'s best first-party path, so its naive result stands here';
 const naReason = (c) => c.error?.replace(/^N\/A[^:]*:\s*/, '') ?? '';
 const NO_GL = { text: 'no WebGL2', title: 'Babylon Lite has no WebGL2 renderer', bad: false };
+/** Status of an engine on a backend it has no renderer for. */
+const noBackend = () => NO_GL;
 function statusOf(c) {
   if (!c) return { text: 'not run', title: 'No run for this combination', bad: false };
   if (c.status === 'na') return { text: c.asNaive ? 'as naive' : 'n/a', title: (c.asNaive ? `${AS_NAIVE}. ` : '') + (naReason(c) || 'Not applicable'), bad: false };
@@ -513,7 +521,7 @@ function statusOf(c) {
   if (c.status === 'missing') return { text: 'not run', title: 'No run for this combination', bad: false };
   return null;
 }
-const stFor = (c, e, be) => (!supports(e, be) ? NO_GL : statusOf(c));
+const stFor = (c, e, be) => (!supports(e, be) ? noBackend(e) : statusOf(c));
 const valueOf = (c, m = state.metric) => (c && (c.status === 'ok' || c.status === 'invalid') ? METRICS[m].get(c) : undefined);
 
 // ---------- tooltip ----------
@@ -774,8 +782,8 @@ function cellRow(id, key, sc, v, level, label, sub, pick, fmt = fmtMsU, higher =
 const bundleRow = (id, kind, label) => ({
   id, key: 'K1', label, sub: 'brotli, initial plus every lazy chunk', higher: false, backends: ['webgpu', 'webgl2'],
   get(b, e, be) {
-    if (!supports(e, be)) return { st: NO_GL };
-    const m = DATA.bundle?.[kind]?.[eid(e, be)];
+    if (!supports(e, be)) return { st: noBackend(e) };
+    const m = DATA.bundle?.[kind]?.[bundleId(e, be)];
     return m ? { v: m.total.brotli, text: fmtKB(m.total.brotli) } : { st: { text: 'not built', title: 'Run npm run bundle-size' } };
   },
 });
@@ -811,9 +819,15 @@ const ROWS = [
   }),
 ];
 const rowById = Object.fromEntries(ROWS.map((r) => [r.id, r]));
-// three.js ships no UI layer: its HUD is this benchmark's own quad batcher, so it is shown but not ranked.
+// Shown but not ranked where the feature is this benchmark's own code: three.js ships no UI layer
+// (its HUD is a quad batcher written here), and Defold no shadows, point lights or bloom (render script).
 rowById.k9cap.unranked = rowById.k9o.unranked = rowById.k9cost.unranked = ['three'];
-const OWN = { text: 'own code', title: 'three.js has no UI layer. This number is a quad batcher written for this benchmark, so it is shown but not ranked or scored.' };
+rowById.k4s1.unranked = rowById.k4s2.unranked = rowById.k4s3.unranked = ['defold'];
+const OWN_BY = {
+  three: { text: 'own code', title: 'three.js has no UI layer. This number is a quad batcher written for this benchmark, so it is shown but not ranked or scored.' },
+  defold: { text: 'own code', title: 'Defold has no built-in shadows, point lights or bloom. These are render-script and shader code written for this benchmark, so the number is shown but not ranked or scored.' },
+};
+const ownOf = (e) => OWN_BY[e] ?? OWN_BY.three;
 
 // A fixed band: anything within 5% of the best is a tie, however many timing loads are behind each number.
 const TIE = 0.95;
@@ -842,7 +856,7 @@ function verdict(r) {
   const tied = ranked.filter(isWin).length > 1;
   const rows = ranked.map((x) => {
     const name = h('span', { class: 'nm' }, h('span', { class: 'dotkey', style: `background:${ENG[x.e].color}` }), ENG[x.e].label);
-    if (x.unranked) return h('div', { class: 'v-row', title: OWN.title }, name, h('span', { class: 'track' }, h('i', { style: `width:${Math.min(100, Math.max(1, (x.v / max) * 100))}%;background:${ENG[x.e].color}` })), h('span', { class: 'num' }, x.text, naiveMark(x.fromNaive), h('small', {}, `${OWN.text}, not ranked`)));
+    if (x.unranked) return h('div', { class: 'v-row', title: ownOf(x.e).title }, name, h('span', { class: 'track' }, h('i', { style: `width:${Math.min(100, Math.max(1, (x.v / max) * 100))}%;background:${ENG[x.e].color}` })), h('span', { class: 'num' }, x.text, naiveMark(x.fromNaive), h('small', {}, `${ownOf(x.e).text}, not ranked`)));
     if (!(x.rel > 0)) return h('div', { class: 'v-row' }, name, h('span', { class: 'why' }, statusSpan(x.st ?? { text: '—', title: '' })));
     const win = isWin(x);
     return h('div', { class: `v-row${win ? ' win' : ''}` }, name, h('span', { class: 'track' }, h('i', { style: `width:${Math.max(1, (x.v / max) * 100)}%;background:${ENG[x.e].color}` })), h('span', { class: 'num' }, x.text, naiveMark(x.fromNaive), h('small', {}, win ? `${tied ? 'Tied' : 'Winner'}${x.lowerBound ? ', at the ladder top' : ''}` : behind(r, x.rel))));
@@ -886,7 +900,7 @@ function renderBoard() {
     const tr = h('tr', {}, h('td', {}, h('div', { class: 'scen-title-cell' }, h('span', {}, h('span', { class: 'keytag' }, r.key), h('a', { href: `#${gid(r)}`, onclick: go(gid(r)) }, r.label)), h('small', {}, h('span', { class: 'dirtxt' }, dirText(r)), ` · ${r.sub}`))));
     entries.forEach((x, i) => {
       if (x.st) return tr.append(h('td', {}, statusSpan(x.st)));
-      if (x.unranked) return tr.append(h('td', {}, x.text, naiveMark(x.fromNaive), h('span', { class: 'pill', title: OWN.title }, OWN.text)));
+      if (x.unranked) return tr.append(h('td', {}, x.text, naiveMark(x.fromNaive), h('span', { class: 'pill', title: ownOf(MAIN[i]).title }, ownOf(MAIN[i]).text)));
       const pct = Math.round(x.rel * 100);
       if (isWin(x)) {
         wins[i]++;
@@ -918,6 +932,7 @@ function renderProfiles() {
       h('li', {}, 'Each scoreboard row scores an engine against the best engine in that row on a log scale: equal to the best is 1, twice as slow (or half the capacity) is 0.7, ten times or worse is 0. A test the engine cannot run scores 0; in an optimized row every engine takes the better of its naive and optimized results.'),
       h('li', {}, 'Each kind of app is a weighted average of the rows listed under it. The choice of rows and the weights are this report\'s judgement, not a standard: different weights give different picks.'),
       h('li', {}, 'three.js has no UI layer, so the HUD rows score 0 for it. Its hand-written batcher is shown in the scoreboard, unranked.'),
+      h('li', {}, 'Defold has no built-in shadows, point lights or bloom, so the Sponza rows that stack them score 0 for it. Its render-script versions are shown in the scoreboard, unranked.'),
       h('li', {}, `It only knows what was measured: speed, size and whether a feature exists, on one Apple M1 Pro, ${timingLoadsText(state.browser)}. The picks change with the browser and backend selected above, and will differ on other GPUs and operating systems.`),
       h('li', {}, 'It says nothing about editor and tooling, documentation, ecosystem, API stability, licence or what your team already knows. PixiJS 3D is a 0.1 release and Babylon Lite is weeks old.'),
       h('li', {}, 'Scores within 3 points are called too close. Treat a pick as where to start looking, then check the rows that matter to your app.')),
@@ -946,7 +961,7 @@ function renderProfiles() {
     const weights = ids.map((id) => `${rowById[id].label} ×${p.w[id]}`).join(' · ');
     const tr = h('tr', {}, h('td', {}, h('div', { class: 'scen-title-cell' }, h('span', {}, p.name), h('small', {}, p.note), why, h('small', {}, `Weights: ${weights}`))));
     scores.forEach((s0, i) => {
-      if (s0 == null) return tr.append(h('td', {}, statusSpan(NO_GL)));
+      if (s0 == null) return tr.append(h('td', {}, statusSpan(noBackend(MAIN[i]))));
       const top = s0 > 0 && scores[first] - s0 <= (close ? 3 : 0);
       tr.append(top ? starTd(null, MAIN[i], String(s0), s0) : h('td', {}, String(s0), h('span', { class: 'meter', 'aria-hidden': 'true' }, h('i', { style: `width:${s0}%;background:${ENG[MAIN[i]].color}` }))));
     });
@@ -971,7 +986,7 @@ function renderConformance() {
   }
   const mark = (b, e, be, r) => {
     if (!r.d.backends.includes(be)) return { cls: 'na', ch: ' ', title: 'WebGPU-only test' };
-    if (!supports(e, be)) return { cls: 'na', ch: '–', title: NO_GL.title };
+    if (!supports(e, be)) return { cls: 'na', ch: '–', title: noBackend(e).title };
     const cs = r.levels.map((l) => cell(b, e, be, r.d.id, r.v, l)).filter(Boolean);
     if (!cs.length) return { cls: 'na', ch: '·', title: 'not run' };
     if (cs.some(okCell)) {
@@ -1252,14 +1267,14 @@ function renderFootprint() {
   const be = state.backend;
   const eng = MAIN.filter((e) => supports(e, be));
   if (bd?.minimal) {
-    const rows = eng.flatMap((e) => [['minimal', 'minimal'], ['realistic', 'realistic']].filter(([k]) => bd[k]?.[eid(e, be)]).map(([k, name]) => ({ label: `${ENG[e].label} · ${name}`, color: ENG[e].color, value: bd[k][eid(e, be)].total.brotli })));
+    const rows = eng.flatMap((e) => [['minimal', 'minimal'], ['realistic', 'realistic']].filter(([k]) => bd[k]?.[bundleId(e, be)]).map(([k, name]) => ({ label: `${ENG[e].label} · ${name}`, color: ENG[e].color, value: bd[k][bundleId(e, be)].total.brotli })));
     requestAnimationFrame(() => barChart($('#bundle'), rows, { fmt: fmtKB, title: 'Bundle, brotli' }));
     const t = h('table', {}, h('thead', {}, h('tr', {}, ['', 'Minimal initial', 'lazy', 'total', 'Realistic initial', 'lazy', 'total'].map((x) => h('th', {}, x)))));
     const tb = h('tbody');
     const parts = ['initial', 'lazy', 'total'];
     const sizeTd = (x) => (x ? h('td', { title: `${x.raw.toLocaleString()} bytes raw` }, fmtKB(x.brotli)) : h('td', {}, '—'));
     for (const e of eng) {
-      const m = bd.minimal[eid(e, be)], r = bd.realistic?.[eid(e, be)];
+      const m = bd.minimal[bundleId(e, be)], r = bd.realistic?.[bundleId(e, be)];
       tb.append(h('tr', {}, engTd(e), parts.map((k) => sizeTd(m?.[k])), parts.map((k) => sizeTd(r?.[k]))));
     }
     t.append(tb);

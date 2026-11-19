@@ -1,0 +1,15 @@
+-- Spawns and animates one share of a scene split across collection proxies (main/split.lua).
+
+function on_message(self, message_id, message)
+    if message_id == hash("build") then
+        -- the module is already loaded by main.script (shared Lua state)
+        self.chunk = require(BENCH_MODULE).chunk(BENCH_SCENE, message.from, message.to)
+        BENCH_WORLDS_BUILT = BENCH_WORLDS_BUILT + 1
+    end
+end
+
+function update(self)
+    if self.chunk and self.chunk.update then
+        self.chunk.update()
+    end
+end

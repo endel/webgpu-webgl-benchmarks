@@ -1,0 +1,29 @@
+#version 140
+
+in highp vec4 position;
+in mediump vec3 normal;
+
+// per-instance: declaring mtx_world as an attribute turns on Defold's automatic instancing
+in highp mat4 mtx_world;
+in mediump vec4 instance_color;
+in mediump vec4 instance_pbr;
+
+out highp vec3 var_world_pos;
+out mediump vec3 var_normal;
+out mediump vec4 var_color;
+out mediump vec4 var_pbr;
+
+uniform vs_uniforms
+{
+    highp mat4 mtx_viewproj;
+};
+
+void main()
+{
+    vec4 wp = mtx_world * vec4(position.xyz, 1.0);
+    var_world_pos = wp.xyz;
+    var_normal = mat3(mtx_world) * normal;
+    var_color = instance_color;
+    var_pbr = instance_pbr;
+    gl_Position = mtx_viewproj * wp;
+}

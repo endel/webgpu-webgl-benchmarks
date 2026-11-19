@@ -6,3 +6,10 @@ results/
 report/out/
 *.log
 .DS_Store
+defold/generated/
+defold/build/
+defold/.internal/
+public/defold/
+public/defold-sponza/
+public/defold-webgpu/
+public/defold-sponza-webgpu/

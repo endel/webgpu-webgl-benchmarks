@@ -1,0 +1,102 @@
+-- K9 HUD through Defold's GUI component: a box or text node per element, moved from the GUI script
+-- every frame. A GUI holds at most 8,192 nodes, so hud.go carries nine components of this scene:
+-- the first draws the panels, icons and dynamic text, each other one 2,048 nameplates (4 nodes each).
+-- The optimized path also assigns every node to a layer (quads, icons, text), which is how Defold
+-- GUI batches: layers draw in order, so each becomes one run of draws.
+-- Coordinates arrive top-left based; GUI space is bottom-left based.
+
+local PLATES_PER_GUI = 2048
+
+function init(self)
+    BENCH_HUD_GUIS = (BENCH_HUD_GUIS or 0) + 1
+    local k = BENCH_HUD_GUIS
+    local d = BENCH_HUD
+    local H = d.height
+    local layered = d.optimized
+    local function layer(node, name)
+        if layered then
+            gui.set_layer(node, name)
+        end
+        return node
+    end
+    local function box(x, y, w, h, color)
+        local node = gui.new_box_node(vmath.vector3(x, H - y, 0), vmath.vector3(w, h, 0))
+        gui.set_pivot(node, gui.PIVOT_NW)
+        gui.set_color(node, color)
+        return layer(node, "quads")
+    end
+    local function icon(cell, x, y, size)
+        local node = gui.new_box_node(vmath.vector3(x, H - y, 0), vmath.vector3(size, size, 0))
+        gui.set_pivot(node, gui.PIVOT_NW)
+        gui.set_texture(node, "atlas")
+        gui.play_flipbook(node, "cell" .. cell)
+        gui.set_size_mode(node, gui.SIZE_MODE_MANUAL)
+        gui.set_size(node, vmath.vector3(size, size, 0))
+        return layer(node, "icons")
+    end
+    local function text(str, x, y, font, pivot)
+        local node = gui.new_text_node(vmath.vector3(x, H - y, 0), str)
+        gui.set_font(node, font)
+        gui.set_pivot(node, pivot)
+        return layer(node, "text")
+    end
+
+    self.S, self.H, self.plates, self.dynamic = d.slots, H, {}, {}
+    if k == 1 then
+        for _, p in ipairs(d.panels) do
+            box(p.x, p.y, p.w, p.h, vmath.vector4(p.color[1], p.color[2], p.color[3], p.color[4]))
+        end
+        for _, ic in ipairs(d.icons) do
+            icon(ic.cell, ic.x, ic.y, d.iconSize)
+        end
+        for i = 1, d.dynamic.count do
+            self.dynamic[i] = text("", d.dynamic.x[i], d.dynamic.y[i], "dynamic", gui.PIVOT_NW)
+        end
+        return
+    end
+
+    local np = d.nameplates
+    local back_color, fill_color = vmath.vector4(0, 0, 0, 0.6), vmath.vector4(0.2, 0.9, 0.3, 1)
+    self.first = (k - 2) * PLATES_PER_GUI
+    for i = self.first + 1, math.min(np.count, self.first + PLATES_PER_GUI) do
+        self.plates[#self.plates + 1] = {
+            back = box(0, 0, np.barWidth, np.barHeight, back_color),
+            fill = box(0, 0, np.barWidth, np.barHeight, fill_color),
+            icon = icon(np.cells[i], 0, 0, np.iconSize),
+            label = text(np.labels[i], 0, 0, "label", gui.PIVOT_N),
+        }
+    end
+    self.np = np
+    self.pos, self.size, self.v = vmath.vector3(), vmath.vector3(0, np.barHeight, 0), vmath.vector4()
+end
+
+function update(self)
+    local S, H = self.S, self.H
+    if #self.dynamic > 0 then
+        local i = 0
+        for line in bench.bytes(S.hudText):gmatch("[^\n]+") do
+            i = i + 1
+            gui.set_text(self.dynamic[i], line)
+        end
+    end
+    local plates = self.plates
+    if #plates == 0 then
+        return
+    end
+    local np, pos, size, v = self.np, self.pos, self.size, self.v
+    local fill4, set_position, set_size = bench.fill4, gui.set_position, gui.set_size
+    local half, top, icon_dx, first = np.barWidth / 2, np.fontSize + 2, np.iconSize + 2, self.first
+    for i = 1, #plates do
+        local p = plates[i]
+        fill4(S.plates, first + i - 1, v) -- x, y, health
+        pos.x, pos.y = v.x, H - v.y
+        set_position(p.label, pos)
+        pos.x, pos.y = v.x - half, H - v.y - top
+        set_position(p.back, pos)
+        set_position(p.fill, pos)
+        size.x = np.barWidth * v.z
+        set_size(p.fill, size)
+        pos.x = pos.x - icon_dx
+        set_position(p.icon, pos)
+    end
+end

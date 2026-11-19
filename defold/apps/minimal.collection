@@ -1,0 +1,10 @@
+name: "minimal"
+instances {
+  id: "app"
+  prototype: "/apps/minimal.go"
+}
+instances {
+  id: "cube"
+  prototype: "/generated/objects/box.go"
+}
+scale_along_z: 0

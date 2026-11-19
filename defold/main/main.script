@@ -1,0 +1,69 @@
+-- Builds the harness's scene when it asks (command 1) and runs the scene's per-frame update.
+
+local bridge = require "main.bridge"
+
+local KINDS = {
+    field = require "main.field",
+    characters = require "main.characters",
+    ["gltf-scene"] = require "main.gltf",
+}
+local CMD_BUILD, CMD_UPLOAD = 1, 2
+
+local function described(self)
+    self.d = self.d or bridge.describe()
+    return self.d
+end
+
+local function build(self)
+    local d = described(self)
+    local kind = KINDS[d.kind] or error("no Defold module for " .. d.kind .. " scenes")
+    self.scene = kind.build(d)
+end
+
+--- Textures the harness hands over before the build, one per command (K4).
+local function upload(self, i)
+    KINDS["gltf-scene"].upload(described(self), i)
+    self.uploaded = i
+    bridge.signal("uploaded", tostring(i))
+end
+
+local function fail(self, err)
+    self.failed = true
+    bridge.signal("error", tostring(err))
+end
+
+function init(self)
+    bridge.signal("booted")
+end
+
+function update(self, dt)
+    local scene = self.scene
+    if scene then
+        scene.update(bench.time(), dt)
+        -- scenes that load collections asynchronously report ready later
+        if not self.ready and (not scene.ready or scene.ready()) then
+            self.ready = true
+            bridge.signal("built", scene.path)
+        end
+    elseif not self.failed then
+        local command, arg = bench.command()
+        local ok, err = true, nil
+        if command == CMD_BUILD then
+            ok, err = pcall(build, self)
+        elseif command == CMD_UPLOAD and arg ~= self.uploaded then
+            ok, err = pcall(upload, self, arg)
+        end
+        if not ok then
+            fail(self, err)
+        end
+    end
+end
+
+function on_message(self, message_id, message, sender)
+    if self.scene and self.scene.on_message then
+        local ok, err = pcall(self.scene.on_message, message_id, message, sender)
+        if not ok then
+            fail(self, err)
+        end
+    end
+end

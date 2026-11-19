@@ -1,0 +1,18 @@
+#version 140
+
+// K4's shadow pass on WebGPU. Defold 1.13.1's WebGPU backend neither offsets viewports inside a render
+// target nor hands render.draw constants to an override material, so each cascade's projection places
+// it in its quarter of a 4x1 atlas strip and in its quarter of the depth range (render script).
+
+in highp vec4 position;
+
+uniform vs_uniforms
+{
+    highp mat4 mtx_world;
+    highp mat4 mtx_viewproj;
+};
+
+void main()
+{
+    gl_Position = mtx_viewproj * mtx_world * vec4(position.xyz, 1.0);
+}

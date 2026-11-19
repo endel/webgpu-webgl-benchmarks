@@ -1,0 +1,60 @@
+[project]
+title = bench
+version = 1.0
+
+[bootstrap]
+main_collection = /main/main.collectionc
+render = /generated/bench.renderc
+
+[display]
+width = 1920
+height = 1080
+high_dpi = 0
+samples = 4
+update_frequency = 0
+swap_interval = 1
+vsync = 1
+
+[graphics]
+max_draw_calls = 65536
+max_characters = 262144
+max_font_batches = 1024
+
+[shader]
+exclude_gles_sm100 = 1
+
+[model]
+max_count = 32768
+max_bone_matrix_texture_width = 4096
+max_bone_matrix_texture_height = 4096
+
+[collection]
+max_instances = 32765
+
+[factory]
+max_count = 64
+
+[collection_proxy]
+max_count = 16
+
+[physics]
+type = 3D
+world_count = 16
+max_collision_object_count = 16384
+
+[resource]
+max_resources = 4096
+
+[script]
+shared_state = 1
+
+[input]
+game_binding = /input/game.input_bindingc
+
+[html5]
+heap_size = 512
+scale_mode = no_scale
+show_fullscreen_button = 0
+show_made_with_defold = 0
+show_console_banner = 0
+wasm_streaming = 1

@@ -51,6 +51,7 @@ const ENGINES: Record<EngineId, () => Promise<{ createAdapter(): EngineAdapter }
   babylon: () => import('../engines/babylon/index'),
   'babylon-lite': () => import('../engines/babylon-lite/index'),
   pixi3d: () => import('../engines/pixi3d/index'),
+  defold: () => import('../engines/defold/index'),
 };
 
 const consoleErrors: string[] = [];

@@ -1,0 +1,31 @@
+script: "/hud/hud.gui_script"
+fonts {
+  name: "label"
+  font: "/hud/label.font"
+}
+fonts {
+  name: "dynamic"
+  font: "/hud/dynamic.font"
+}
+textures {
+  name: "atlas"
+  texture: "/generated/hud/atlas.tilesource"
+}
+background_color {
+  x: 0.0
+  y: 0.0
+  z: 0.0
+  w: 0.0
+}
+layers {
+  name: "quads"
+}
+layers {
+  name: "icons"
+}
+layers {
+  name: "text"
+}
+material: "/builtins/materials/gui.material"
+adjust_reference: ADJUST_REFERENCE_PARENT
+max_nodes: 8192

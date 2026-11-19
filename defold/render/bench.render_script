@@ -1,0 +1,288 @@
+-- Draws what the scene modules publish in BENCH (script.shared_state lets the render script see
+-- game script globals): opaque models, alpha-blended models back to front, then the GUI.
+--
+-- K4's features are hand-written here, since Defold has none built in: cascaded sun shadows
+-- (B.shadow: four cascades in one depth atlas, drawn with the "shadow" override material), point
+-- lights (B.points, shaded by sponza.fp) and bloom (B.bloom: the scene renders to an HDR target,
+-- then threshold, a 5-level down/up chain and a tone-mapping composite, on a full-screen quad).
+
+local COLOR = graphics.BUFFER_TYPE_COLOR0_BIT
+local DEPTH = graphics.BUFFER_TYPE_DEPTH_BIT
+local STENCIL = graphics.BUFFER_TYPE_STENCIL_BIT
+
+local SHADOW_ATLAS = 4096
+local BLOOM_LEVELS = 5
+-- three.js UnrealBloomPass's per-level factors, mixed towards 1.2 - f by the radius
+local BLOOM_FACTORS = { 1.0, 0.8, 0.6, 0.4, 0.2 }
+
+function init(self)
+    self.models = render.predicate({ "model" })
+    self.blended = render.predicate({ "model_blend" })
+    self.double = render.predicate({ "model_double" })
+    self.postfx = render.predicate({ "postfx" })
+    self.gui = render.predicate({ "gui" })
+    self.text = render.predicate({ "text" })
+    self.clear = { [COLOR] = vmath.vector4(0, 0, 0, 1), [DEPTH] = 1, [STENCIL] = 0 }
+    self.constants = render.constant_buffer()
+    -- render.draw is queued and runs after update returns, reading its constants then: every draw
+    -- that needs its own values needs its own buffer
+    self.post_constants = {}
+    self.identity = vmath.matrix4()
+end
+
+-- Defold 1.13.1's WebGPU backend sets stencil load/store ops on every depth attachment, which WebGPU
+-- rejects for depth-only formats, so its depth targets carry a stencil buffer there.
+local function with_stencil(params, w, h)
+    if BENCH.backend == "webgpu" then
+        params[STENCIL] = { format = graphics.TEXTURE_FORMAT_STENCIL, width = w, height = h }
+    end
+    return params
+end
+
+local function target(color_format, w, h, depth)
+    local params = { [COLOR] = { format = color_format, width = w, height = h, min_filter = graphics.TEXTURE_FILTER_LINEAR, mag_filter = graphics.TEXTURE_FILTER_LINEAR, u_wrap = graphics.TEXTURE_WRAP_CLAMP_TO_EDGE, v_wrap = graphics.TEXTURE_WRAP_CLAMP_TO_EDGE } }
+    if depth then
+        params[DEPTH] = { format = graphics.TEXTURE_FORMAT_DEPTH, width = w, height = h }
+        with_stencil(params, w, h)
+    end
+    return render.render_target(params)
+end
+
+local function create_targets(self, B)
+    if B.shadow and not self.shadow_rt then
+        local sampled = { min_filter = graphics.TEXTURE_FILTER_NEAREST, mag_filter = graphics.TEXTURE_FILTER_NEAREST,
+            u_wrap = graphics.TEXTURE_WRAP_CLAMP_TO_EDGE, v_wrap = graphics.TEXTURE_WRAP_CLAMP_TO_EDGE }
+        if B.backend == "webgpu" then
+            -- Defold 1.13.1's WebGPU backend cannot sample a depth texture: depth goes packed into RGBA8,
+            -- in a 4x1 strip of cascades (shadow_tiled.vp)
+            local w, h = SHADOW_ATLAS * 2, SHADOW_ATLAS / 2
+            sampled.format, sampled.width, sampled.height = graphics.TEXTURE_FORMAT_RGBA, w, h
+            self.shadow_rt = render.render_target(with_stencil({ [COLOR] = sampled, [DEPTH] = { format = graphics.TEXTURE_FORMAT_DEPTH, width = w, height = h } }, w, h))
+            self.shadow_buffer, self.shadow_mode = COLOR, 2
+        else
+            sampled.format, sampled.width, sampled.height, sampled.flags = graphics.TEXTURE_FORMAT_DEPTH, SHADOW_ATLAS, SHADOW_ATLAS, render.TEXTURE_BIT
+            self.shadow_rt = render.render_target({ [DEPTH] = sampled })
+            self.shadow_buffer, self.shadow_mode = DEPTH, 1
+        end
+    end
+    if B.bloom and not self.hdr then
+        self.hdr = target(graphics.TEXTURE_FORMAT_RGBA16F, B.width, B.height, true)
+        self.mips = {}
+        local w, h = B.width, B.height
+        for i = 1, BLOOM_LEVELS do
+            w, h = math.max(1, math.floor(w / 2)), math.max(1, math.floor(h / 2))
+            self.mips[i] = { rt = target(graphics.TEXTURE_FORMAT_RGBA16F, w, h), w = w, h = h }
+        end
+    end
+end
+
+local function refresh(self, B)
+    self.version = B.version
+    self.clear[COLOR] = B.bloom and B.clear_linear or B.clear
+    local c = self.constants
+    c.sun_dir = B.sun_dir
+    c.sun_color = B.sun_color
+    c.ambient = B.ambient
+    c.cam_pos = vmath.vector4(B.cam_pos.x, B.cam_pos.y, B.cam_pos.z, B.bloom and 1 or 0)
+    c.cam_fwd = B.cam_fwd
+    -- all six planes: K5's far plane is what keeps its draw count at what is in view
+    self.options = { frustum = B.frustum, frustum_planes = render.FRUSTUM_PLANES_ALL, constants = c }
+    if not self.gui_proj then
+        self.gui_proj = vmath.matrix4_orthographic(0, B.width, 0, B.height, -1, 1)
+    end
+end
+
+--- Practical split scheme (half log, half uniform); each cascade's light frustum bounds its slice's sphere.
+local function shadow_pass(self, B)
+    local S = B.shadow
+    local c = self.constants
+    local near, far = B.near, S.max_distance
+    local inv_view = vmath.inv(B.view)
+    local tan, aspect = math.tan(B.fov / 2), B.width / B.height
+    local L = vmath.normalize(vmath.vector3(B.sun_dir.x, B.sun_dir.y, B.sun_dir.z))
+    local up = math.abs(L.y) > 0.99 and vmath.vector3(1, 0, 0) or vmath.vector3(0, 1, 0)
+    local tile = SHADOW_ATLAS / 2
+    local splits = vmath.vector4()
+
+    -- WebGPU: cascades placed by their projections in a 4x1 strip (shadow_tiled.vp)
+    local tiled = self.shadow_mode == 2
+    render.set_render_target(self.shadow_rt)
+    render.set_depth_mask(true)
+    render.clear(tiled and { [COLOR] = vmath.vector4(1), [DEPTH] = 1, [STENCIL] = 0 } or { [DEPTH] = 1 })
+    render.enable_state(graphics.STATE_DEPTH_TEST)
+    render.disable_state(graphics.STATE_CULL_FACE)
+    render.enable_material(tiled and "shadow_tiled" or "shadow")
+    if tiled then
+        render.set_viewport(0, 0, SHADOW_ATLAS * 2, SHADOW_ATLAS / 2)
+    end
+
+    local z0 = near
+    for i = 1, 4 do
+        local p = i / 4
+        local z1 = 0.5 * near * (far / near) ^ p + 0.5 * (near + (far - near) * p)
+        splits[({ "x", "y", "z", "w" })[i]] = z1
+        local center, corners = vmath.vector3(), {}
+        for _, z in ipairs({ z0, z1 }) do
+            local hh, hw = z * tan, z * tan * aspect
+            for _, xy in ipairs({ { -1, -1 }, { 1, -1 }, { 1, 1 }, { -1, 1 } }) do
+                local w = inv_view * vmath.vector4(xy[1] * hw, xy[2] * hh, -z, 1)
+                local corner = vmath.vector3(w.x, w.y, w.z)
+                corners[#corners + 1] = corner
+                center = center + corner / 8
+            end
+        end
+        local radius = 0
+        for _, corner in ipairs(corners) do
+            radius = math.max(radius, vmath.length(corner - center))
+        end
+        -- casters behind the slice still shadow it: pull the light back by the shadow distance
+        local back = radius + far
+        local view = vmath.matrix4_look_at(center - L * back, center, up)
+        local proj = vmath.matrix4_orthographic(-radius, radius, -radius, radius, 0, back + radius)
+        local ox, oy = ((i - 1) % 2) * 0.5, math.floor((i - 1) / 2) * 0.5
+        -- clip space -> texture coordinates and depth. WebGL2: this cascade's quarter of a 2x2 depth
+        -- atlas. WebGPU: its projection also squeezes it into quarter i of the strip and of the depth
+        -- range, and the target's top row comes first.
+        local to_tex = vmath.matrix4()
+        local options = { frustum = proj * view }
+        local draw_proj = proj
+        if tiled then
+            local k = i - 1
+            local place = vmath.matrix4()
+            place.m00, place.m03, place.m22, place.m23 = 0.25, 0.5 * k - 0.75, 0.25, 0.5 * k - 0.75
+            draw_proj = place * proj
+            to_tex.m00, to_tex.m03, to_tex.m11, to_tex.m13 = 0.125, 0.125 + 0.25 * k, -0.5, 0.5
+            to_tex.m22, to_tex.m23 = 0.125, 0.125 + 0.25 * k
+        else
+            to_tex.m00, to_tex.m03, to_tex.m11, to_tex.m13 = 0.25, 0.25 + ox, 0.25, 0.25 + oy
+            to_tex.m22, to_tex.m23 = 0.5, 0.5
+            render.set_viewport(ox * SHADOW_ATLAS, oy * SHADOW_ATLAS, tile, tile)
+        end
+        c["shadow_mtx" .. (i - 1)] = to_tex * proj * view
+
+        render.set_view(view)
+        render.set_projection(draw_proj)
+        render.draw(self.models, options)
+        render.draw(self.double, options)
+        z0 = z1
+    end
+
+    render.disable_material()
+    render.set_render_target(render.RENDER_TARGET_DEFAULT)
+    c.shadow_splits = splits
+    c.shadow_info = vmath.vector4(self.shadow_mode, tiled and 1 / (SHADOW_ATLAS * 2) or 1 / SHADOW_ATLAS, S.bias, S.normal_offset)
+end
+
+local function post_pass(self, material, dst, src, src_w, src_h, weight)
+    local B = BENCH
+    self.post_pass = self.post_pass + 1
+    local c = self.post_constants[self.post_pass]
+    if not c then
+        c = render.constant_buffer()
+        self.post_constants[self.post_pass] = c
+    end
+    -- z: WebGPU render targets store their top row first, so passes reading them flip v
+    c.bloom_texel = vmath.vector4(1 / src_w, 1 / src_h, B.backend == "webgpu" and 1 or 0, 0)
+    c.bloom = vmath.vector4(B.bloom.threshold, B.bloom.strength, B.bloom.radius, weight or 1)
+    render.set_render_target(dst and dst.rt or render.RENDER_TARGET_DEFAULT)
+    render.set_viewport(0, 0, dst and dst.w or B.width, dst and dst.h or B.height)
+    render.enable_texture("tex0", src, COLOR)
+    render.enable_material(material)
+    render.draw(self.postfx, { constants = c })
+    render.disable_material()
+    render.disable_texture("tex0")
+end
+
+local function bloom_passes(self, B)
+    self.post_pass = 0
+    render.disable_state(graphics.STATE_DEPTH_TEST)
+    render.disable_state(graphics.STATE_CULL_FACE)
+    render.set_view(self.identity)
+    render.set_projection(self.identity)
+    local mips = self.mips
+    post_pass(self, "bloom_bright", mips[1], self.hdr, B.width, B.height)
+    for i = 1, BLOOM_LEVELS - 1 do
+        post_pass(self, "bloom_down", mips[i + 1], mips[i].rt, mips[i].w, mips[i].h)
+    end
+    render.enable_state(graphics.STATE_BLEND)
+    render.set_blend_func(graphics.BLEND_FACTOR_ONE, graphics.BLEND_FACTOR_ONE)
+    for i = BLOOM_LEVELS - 1, 1, -1 do
+        local f = BLOOM_FACTORS[i + 1]
+        post_pass(self, "bloom_up", mips[i], mips[i + 1].rt, mips[i + 1].w, mips[i + 1].h, f + (1.2 - 2 * f) * B.bloom.radius)
+    end
+    render.disable_state(graphics.STATE_BLEND)
+    render.enable_texture("tex1", mips[1].rt, COLOR)
+    post_pass(self, "composite", nil, self.hdr, B.width, B.height)
+    render.disable_texture("tex1")
+end
+
+function update(self)
+    local B = BENCH
+    if B and B.version ~= self.version then
+        refresh(self, B)
+    end
+    if B then
+        create_targets(self, B)
+        local c = self.constants
+        if B.points then
+            c.point_pos = B.points.pos
+            c.point_color = B.points.color
+            c.point_info = B.points.info
+        end
+        if B.shadow and self.options then
+            shadow_pass(self, B)
+        end
+    end
+
+    if B and B.bloom then
+        render.set_render_target(self.hdr)
+    end
+    render.set_depth_mask(true)
+    render.set_stencil_mask(0xff)
+    render.clear(self.clear)
+    render.set_viewport(0, 0, render.get_window_width(), render.get_window_height())
+    if not self.options then
+        return
+    end
+
+    render.set_view(B.view)
+    render.set_projection(B.proj)
+    render.enable_state(graphics.STATE_DEPTH_TEST)
+    render.enable_state(graphics.STATE_CULL_FACE)
+    if B.shadow then
+        render.enable_texture("shadow_map", self.shadow_rt, self.shadow_buffer)
+    end
+    render.draw(self.models, self.options)
+    render.disable_state(graphics.STATE_CULL_FACE)
+    render.draw(self.double, self.options)
+    render.enable_state(graphics.STATE_CULL_FACE)
+    if B.shadow then
+        render.disable_texture("shadow_map")
+    end
+    if B.blend then
+        render.set_depth_mask(false)
+        render.enable_state(graphics.STATE_BLEND)
+        render.set_blend_func(graphics.BLEND_FACTOR_SRC_ALPHA, graphics.BLEND_FACTOR_ONE_MINUS_SRC_ALPHA)
+        render.draw(self.blended, self.options)
+        render.disable_state(graphics.STATE_BLEND)
+        render.set_depth_mask(true)
+    end
+    render.disable_state(graphics.STATE_CULL_FACE)
+    render.disable_state(graphics.STATE_DEPTH_TEST)
+
+    if B.bloom then
+        bloom_passes(self, B)
+    end
+
+    if B.hud then
+        render.set_view(self.identity)
+        render.set_projection(self.gui_proj)
+        render.enable_state(graphics.STATE_BLEND)
+        render.set_blend_func(graphics.BLEND_FACTOR_ONE, graphics.BLEND_FACTOR_ONE_MINUS_SRC_ALPHA)
+        render.enable_state(graphics.STATE_STENCIL_TEST)
+        render.draw(self.gui)
+        render.draw(self.text)
+        render.disable_state(graphics.STATE_STENCIL_TEST)
+        render.disable_state(graphics.STATE_BLEND)
+    end
+end

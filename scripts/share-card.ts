@@ -23,13 +23,18 @@ type Logo = { d: string } | { img: string; w: number; h: number };
 // Pink can sit next to green only across the lifted winner's gap; logos and counts name every slice anyway.
 const svgPath = (file: string) => readFileSync(join(LOGOS, file), 'utf8').match(/<path d="([^"]+)"/)![1];
 const pixi = { img: `data:image/svg+xml;base64,${readFileSync(join(LOGOS, 'pixijs.svg')).toString('base64')}`, w: 735, h: 289 };
+// Defold's app icon (from Defold.app), square, so it takes the icon layout
+const defold = { img: `data:image/png;base64,${readFileSync(join(LOGOS, 'defold.png')).toString('base64')}`, w: 256, h: 256 };
 const ENG: Record<string, { color: string; ink: string; logo: Logo }> = {
   three: { color: '#3987e5', ink: '#ffffff', logo: { d: svgPath('threejs.svg') } },
   playcanvas: { color: '#d4343a', ink: '#ffffff', logo: { d: svgPath('playcanvas.svg') } },
   babylon: { color: '#199e70', ink: '#ffffff', logo: { d: svgPath('babylonjs.svg') } },
   'babylon-lite': { color: '#b68e00', ink: '#121513', logo: { d: svgPath('babylonjs.svg') } },
   pixi3d: { color: '#d55181', ink: '#ffffff', logo: pixi },
+  defold: { color: '#7c5fd6', ink: '#ffffff', logo: defold },
 };
+/** A wordmark (wide image) gets a wide chip; icons and square images a square one. */
+const wide = (L: Logo) => 'img' in L && L.w > L.h * 1.5;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -87,7 +92,8 @@ const WINS = `(() => {
       rows++;
       evalRow(r, browser, backend).entries.forEach((x, i) => { if (!x.st && !x.unranked && isWin(x)) wins[i]++; });
     }
-    views.push({ browser, backend, rows, wins: Object.fromEntries(MAIN.map((e, i) => [e, wins[i]])) });
+    // an engine with no renderer for this backend has no row in its view (Defold on WebGPU, Babylon Lite on WebGL2)
+    views.push({ browser, backend, rows, wins: Object.fromEntries(MAIN.map((e, i) => [e, wins[i]]).filter(([e]) => supports(e, backend))) });
   }
   return { views, labels: Object.fromEntries(MAIN.map((e) => [e, ENG[e].label])) };
 })()`;
@@ -115,6 +121,7 @@ function card(views: View[], labels: Record<string, string>) {
   const logo = (e: string, x: number, y: number, size: number) => {
     const L = ENG[e].logo;
     if ('img' in L) {
+      if (!wide(L)) size *= 1.15; // a full-bleed square icon reads small next to the path logos
       const h = (size * L.h) / L.w;
       return `<image href="${L.img}" x="${x - size / 2}" y="${y - h / 2}" width="${size}" height="${h}"/>`;
     }
@@ -147,8 +154,8 @@ function card(views: View[], labels: Record<string, string>) {
   const pie = [...slices.filter((s) => !s.first), ...slices.filter((s) => s.first)].map((s) => s.g).join('');
 
   const chip = (e: string, big: boolean) => {
-    const L = ENG[e].logo, h = big ? 64 : 48, w = 'img' in L ? (big ? 132 : 96) : h;
-    return `<svg class="chip" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" rx="${big ? 14 : 11}" fill="${ENG[e].color}"/>${logo(e, w / 2, h / 2, 'img' in L ? w - 22 : h * 0.56)}</svg>`;
+    const L = ENG[e].logo, h = big ? 64 : 48, w = wide(L) ? (big ? 132 : 96) : h;
+    return `<svg class="chip" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" rx="${big ? 14 : 11}" fill="${ENG[e].color}"/>${logo(e, w / 2, h / 2, wide(L) ? w - 22 : h * 0.56)}</svg>`;
   };
   const list = ranked.map(([e, n], i) => `<li class="${i === 0 ? 'first' : ''}"><span class="rank">${i + 1}</span>${chip(e, i === 0)}<span class="name">${labels[e]}</span><span class="n">${n}<small>${i === 0 ? ' wins' : ''}</small></span></li>`).join('');
   const engines = Object.keys(main.wins).length;
@@ -170,6 +177,8 @@ function card(views: View[], labels: Record<string, string>) {
   li .n { font: 700 30px/1 Archivo, sans-serif; font-stretch: 110%; color: var(--ink); font-variant-numeric: tabular-nums; }
   li .n small { font: 500 17px Onest, sans-serif; color: var(--ink-2); }
   li.first { padding: 14px 22px 14px 14px; background: var(--surface); box-shadow: inset 0 0 0 1.5px ${ENG[order[0][0]].color}99; margin-bottom: 6px; }
+  /* six or more engines: tighter rows, so the list clears the footer */
+  ol.dense { margin-top: 26px; gap: 3px; } ol.dense li { padding-block: 4px; } ol.dense li.first { padding-block: 10px; }
   li.first .rank { color: var(--ink); font-size: 20px; }
   li.first .name { font: 700 34px/1 Archivo, sans-serif; font-stretch: 112%; color: var(--ink); }
   li.first .n { font-size: 52px; }
@@ -188,7 +197,7 @@ function card(views: View[], labels: Record<string, string>) {
   <div class="kicker">${BACKEND[main.backend]} · ${WORDS[engines] ?? engines} web 3D engines · ${main.rows} benchmarks</div>
   <h1>${headline}</h1>
   <p class="sub">Benchmarks won in ${where}, out of ${main.rows}. A result within 5% of the best counts as a win for every engine that close, so wins add up to ${total}.</p>
-  <ol>${list}</ol>
+  <ol${ranked.length > 5 ? ' class="dense"' : ''}>${list}</ol>
   <svg class="pie" viewBox="0 0 800 800" role="img" aria-label="Benchmarks won: ${order.map(([e, n]) => `${labels[e]} ${n}`).join(', ')}">
     <defs><filter id="lift" x="-30%" y="-30%" width="160%" height="160%"><feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#000" flood-opacity=".55"/></filter></defs>
     ${pie}

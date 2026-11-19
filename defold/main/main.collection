@@ -1,0 +1,14 @@
+name: "main"
+instances {
+  id: "bench"
+  prototype: "/main/bench.go"
+}
+instances {
+  id: "factories"
+  prototype: "/generated/factories.go"
+}
+instances {
+  id: "worlds"
+  prototype: "/generated/worlds.go"
+}
+scale_along_z: 0

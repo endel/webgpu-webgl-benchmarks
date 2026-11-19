@@ -1,0 +1,24 @@
+-- K1 bundle size: the smallest lit-cube app on the stock engine (built by scripts/build-defold.ts).
+
+local function v4(x, y, z, w)
+    return vmath.vector4(x, y, z, w or 0)
+end
+
+function init(self)
+    local eye, target = vmath.vector3(0, 1.2, 3), vmath.vector3(0, 0, 0)
+    local proj = vmath.matrix4_perspective(math.rad(50), 1920 / 1080, 0.1, 100)
+    local view = vmath.matrix4_look_at(eye, target, vmath.vector3(0, 1, 0))
+    local f = vmath.normalize(target - eye)
+    BENCH = {
+        version = 1, width = 1920, height = 1080, fov = math.rad(50), near = 0.1, far = 100,
+        clear = v4(0.155, 0.155, 0.173, 1), clear_linear = v4(0.02, 0.02, 0.025, 1),
+        ambient = v4(0.18, 0.195, 0.225), sun_dir = v4(-0.35, -0.88, -0.26), sun_color = v4(2.2, 2.13, 2.02),
+        proj = proj, view = view, frustum = proj * view, cam_pos = v4(eye.x, eye.y, eye.z, 1), cam_fwd = v4(f.x, f.y, f.z),
+    }
+    go.set("cube#model", "base_color", v4(0.8, 0.3, 0.1, 1))
+    go.set("cube#model", "pbr", v4(0.4, 0, 0, 0))
+end
+
+function update(self, dt)
+    go.set_rotation(go.get_rotation("cube") * vmath.quat_rotation_y(dt), "cube")
+end

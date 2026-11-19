@@ -17,6 +17,13 @@ test('K2 and K6 ladders climb past the fastest engine', () => {
   assert.deepEqual([ladder('k6', 'optimized')[0], ladder('k6', 'optimized').at(-1)], [200, 51200]);
 });
 
+test('opt-in engines are queued only when the filter names them', () => {
+  assert.ok(!allCells().some((c) => c.engine === 'defold'));
+  assert.ok(!allCells({ scenario: ['k2'] }).some((c) => c.engine === 'defold'));
+  const named = allCells({ engine: ['defold'], scenario: ['k1'] });
+  assert.deepEqual(named.map((c) => c.backend).sort(), ['webgl2', 'webgpu']);
+});
+
 test('K9 has an optimized HUD ladder without the no-HUD level', () => {
   assert.deepEqual(scenarioById('k9')!.variants, ['naive', 'optimized']);
   assert.deepEqual(ladder('k9', 'naive'), [0, 250, 500, 1000, 2000, 4000, 8000, 16000]);

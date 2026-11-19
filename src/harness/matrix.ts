@@ -25,7 +25,10 @@ export interface ScenarioDef {
 const BOTH: Backend[] = ['webgpu', 'webgl2'];
 const x2 = (from: number, steps: number) => Array.from({ length: steps }, (_, i) => from * 2 ** i);
 
-export const ENGINES: EngineId[] = ['three', 'three-classic', 'playcanvas', 'babylon', 'babylon-lite', 'pixi3d'];
+export const ENGINES: EngineId[] = ['three', 'three-classic', 'playcanvas', 'babylon', 'babylon-lite', 'pixi3d', 'defold'];
+
+/** Engines outside the published matrix: queued only when a filter names them (`--only engine=defold`). */
+export const OPT_IN: EngineId[] = ['defold'];
 
 export const SCENARIOS: ScenarioDef[] = [
   { id: 'k1', key: 'K1', title: 'Startup: minimal lit cube', levels: [1], levelLabel: 'objects', variants: ['naive'], backends: BOTH },
@@ -47,7 +50,8 @@ export const scenarioById = (id: string) => SCENARIOS.find((s) => s.id === id);
 
 /**
  * three.js is measured as WebGPURenderer on WebGPU and the classic WebGLRenderer on WebGL2 (what
- * three.js apps ship). Babylon Lite has no WebGL2 renderer.
+ * three.js apps ship). Babylon Lite has no WebGL2 renderer. Defold runs on both, from separate
+ * bundles (scripts/build-defold.ts).
  */
 export function engineSupports(engine: EngineId, backend: Backend) {
   if (engine === 'three-classic') return backend === 'webgl2';
@@ -80,6 +84,7 @@ export function allCells(filter?: Partial<Record<keyof Cell, string[]>>): Cell[]
           if (!ok('backend', backend)) continue;
           for (const engine of ENGINES) {
             if (!ok('engine', engine) || !engineSupports(engine, backend)) continue;
+            if (OPT_IN.includes(engine) && !filter?.engine?.includes(engine)) continue;
             out.push({ engine, backend, scenario: s.id, variant, level });
           }
         }
